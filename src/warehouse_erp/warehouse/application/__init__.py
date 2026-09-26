@@ -1,0 +1,1 @@
+"""Warehouse application use cases."""

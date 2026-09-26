@@ -1,0 +1,1 @@
+"""Warehouse ERP application package."""

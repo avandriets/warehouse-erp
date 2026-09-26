@@ -1,0 +1,1 @@
+"""Typed, scoped application settings."""
