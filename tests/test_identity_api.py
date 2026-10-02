@@ -117,10 +117,18 @@ def test_first_login_creates_pending_user(
 def test_admin_can_manage_users_roles_and_assignments(client: TestClient) -> None:
     user_response = client.post(
         "/api/identity/users",
-        json={"email": "worker@example.com", "display_name": "Worker"},
+        json={
+            "email": "worker@example.com",
+            "first_name": "Warehouse",
+            "last_name": "Worker",
+        },
     )
     assert user_response.status_code == 201
-    user_id = user_response.json()["id"]
+    created_user = user_response.json()
+    assert created_user["first_name"] == "Warehouse"
+    assert created_user["last_name"] == "Worker"
+    assert created_user["display_name"] == "Warehouse Worker"
+    user_id = created_user["id"]
 
     linked = client.put(
         f"/api/identity/users/{user_id}/auth0",

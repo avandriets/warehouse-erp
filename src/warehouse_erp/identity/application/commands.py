@@ -7,12 +7,16 @@ from warehouse_erp.identity.domain.entities import ScopeType
 @dataclass(frozen=True, slots=True)
 class CreateUser:
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
     display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class UpdateUserProfile:
     email: str | None
+    first_name: str | None
+    last_name: str | None
     display_name: str | None
 
 

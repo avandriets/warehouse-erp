@@ -21,6 +21,8 @@ class UserModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     auth0_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
     email: Mapped[str | None] = mapped_column(String(320), unique=True)
+    first_name: Mapped[str | None] = mapped_column(String(100))
+    last_name: Mapped[str | None] = mapped_column(String(100))
     display_name: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

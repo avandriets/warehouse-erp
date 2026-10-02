@@ -46,6 +46,17 @@ def normalize_display_name(value: str | None) -> str | None:
     return normalized
 
 
+def normalize_person_name(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if len(normalized) > 100:
+        raise ValidationError(f"{field} must not exceed 100 characters")
+    return normalized
+
+
 def normalize_role_code(value: str) -> str:
     normalized = value.strip().upper()
     if not normalized or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,63}", normalized):
@@ -80,6 +91,8 @@ class User:
     id: UUID = field(default_factory=uuid4)
     auth0_subject: str | None = None
     email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     display_name: str | None = None
     created_at: datetime = field(default_factory=utc_now)
     created_by: UUID | None = None
@@ -88,7 +101,9 @@ class User:
 
     def __post_init__(self) -> None:
         self.email = normalize_email(self.email)
-        self.display_name = normalize_display_name(self.display_name)
+        self.first_name = normalize_person_name(self.first_name, "first_name")
+        self.last_name = normalize_person_name(self.last_name, "last_name")
+        self.display_name = self._display_name(self.display_name)
         if self.auth0_subject is not None:
             self.auth0_subject = self.auth0_subject.strip()
             if not self.auth0_subject:
@@ -112,11 +127,23 @@ class User:
         self._touch(actor_id)
 
     def update_profile(
-        self, *, email: str | None, display_name: str | None, actor_id: UUID
+        self,
+        *,
+        email: str | None,
+        first_name: str | None,
+        last_name: str | None,
+        display_name: str | None,
+        actor_id: UUID,
     ) -> None:
         self.email = normalize_email(email)
-        self.display_name = normalize_display_name(display_name)
+        self.first_name = normalize_person_name(first_name, "first_name")
+        self.last_name = normalize_person_name(last_name, "last_name")
+        self.display_name = self._display_name(display_name)
         self._touch(actor_id)
+
+    def _display_name(self, fallback: str | None) -> str | None:
+        full_name = " ".join(part for part in (self.first_name, self.last_name) if part)
+        return normalize_display_name(full_name or fallback)
 
     def _touch(self, actor_id: UUID) -> None:
         self.updated_at = utc_now()

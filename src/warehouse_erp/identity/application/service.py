@@ -64,9 +64,12 @@ class IdentityService:
         limit: int,
         offset: int,
         status: UserStatus | None,
-    ) -> list[User]:
+        q: str | None = None,
+    ) -> tuple[list[User], int]:
         self._require_manage_users(actor)
-        return self.uow.identity.list_users(limit=limit, offset=offset, status=status)
+        return self.uow.identity.list_users(
+            limit=limit, offset=offset, status=status, q=(q or "").strip() or None
+        )
 
     def create_user(self, actor: CurrentUser, command: CreateUser) -> User:
         self._require_manage_users(actor)
@@ -77,6 +80,8 @@ class IdentityService:
             raise ConflictError("User with this email already exists")
         user = User(
             email=email,
+            first_name=command.first_name,
+            last_name=command.last_name,
             display_name=command.display_name,
             status=UserStatus.INVITED,
             created_by=actor.user_id,
@@ -98,6 +103,8 @@ class IdentityService:
                 raise ConflictError("User with this email already exists")
         user.update_profile(
             email=email,
+            first_name=command.first_name,
+            last_name=command.last_name,
             display_name=command.display_name,
             actor_id=actor.user_id,
         )
@@ -142,9 +149,11 @@ class IdentityService:
         self._require_manage_users(actor)
         return self.uow.identity.list_permissions()
 
-    def list_roles(self, actor: CurrentUser, *, active: bool | None) -> list[Role]:
+    def list_roles(
+        self, actor: CurrentUser, *, active: bool | None, q: str | None = None
+    ) -> list[Role]:
         self._require_manage_users(actor)
-        return self.uow.identity.list_roles(active=active)
+        return self.uow.identity.list_roles(active=active, q=(q or "").strip() or None)
 
     def get_role(self, actor: CurrentUser, role_id: UUID) -> Role:
         self._require_manage_users(actor)

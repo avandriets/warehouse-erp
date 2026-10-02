@@ -19,6 +19,7 @@ from warehouse_erp.identity.api.schemas import (
     RoleResponse,
     RoleUpdate,
     UserCreate,
+    UserListResponse,
     UserResponse,
     UserUpdate,
 )
@@ -44,6 +45,7 @@ Manager = Annotated[
 Service = Annotated[IdentityService, Depends(get_identity_service)]
 PageLimit = Annotated[int, Query(ge=1, le=100)]
 PageOffset = Annotated[int, Query(ge=0)]
+SearchQuery = Annotated[str | None, Query(max_length=255)]
 UserStatusFilter = Annotated[UserStatus | None, Query(alias="status")]
 
 
@@ -57,15 +59,17 @@ def get_me(user: Current) -> CurrentUserResponse:
     )
 
 
-@router.get("/users", response_model=list[UserResponse])
+@router.get("/users", response_model=UserListResponse)
 def list_users(
     actor: Manager,
     service: Service,
     limit: PageLimit = 50,
     offset: PageOffset = 0,
     user_status: UserStatusFilter = None,
+    q: SearchQuery = None,
 ) -> object:
-    return service.list_users(actor, limit=limit, offset=offset, status=user_status)
+    items, total = service.list_users(actor, limit=limit, offset=offset, status=user_status, q=q)
+    return UserListResponse(items=items, total=total)
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -88,10 +92,20 @@ def update_user(
     current = service.get_user(actor, user_id)
     command = UpdateUserProfile(
         email=payload.email if "email" in payload.model_fields_set else current.email,
+        first_name=(
+            payload.first_name if "first_name" in payload.model_fields_set else current.first_name
+        ),
+        last_name=(
+            payload.last_name if "last_name" in payload.model_fields_set else current.last_name
+        ),
         display_name=(
             payload.display_name
             if "display_name" in payload.model_fields_set
-            else current.display_name
+            else (
+                None
+                if {"first_name", "last_name"} & payload.model_fields_set
+                else current.display_name
+            )
         ),
     )
     return service.update_user_profile(actor, user_id, command)
@@ -123,8 +137,10 @@ def list_permissions(actor: Manager, service: Service) -> object:
 
 
 @router.get("/roles", response_model=list[RoleResponse])
-def list_roles(actor: Manager, service: Service, active: bool | None = None) -> object:
-    return service.list_roles(actor, active=active)
+def list_roles(
+    actor: Manager, service: Service, active: bool | None = None, q: SearchQuery = None
+) -> object:
+    return service.list_roles(actor, active=active, q=q)
 
 
 @router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)

@@ -15,11 +15,15 @@ class CurrentUserResponse(BaseModel):
 
 class UserCreate(BaseModel):
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
     display_name: str | None = None
 
 
 class UserUpdate(BaseModel):
     email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     display_name: str | None = None
 
 
@@ -33,10 +37,17 @@ class UserResponse(BaseModel):
     id: UUID
     auth0_subject: str | None
     email: str | None
+    first_name: str | None
+    last_name: str | None
     display_name: str | None
     status: UserStatus
     created_at: datetime
     updated_at: datetime
+
+
+class UserListResponse(BaseModel):
+    items: list[UserResponse]
+    total: int
 
 
 class PermissionResponse(BaseModel):

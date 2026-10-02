@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,8 @@ def _user(model: UserModel) -> User:
         id=UUID(model.id),
         auth0_subject=model.auth0_subject,
         email=model.email,
+        first_name=model.first_name,
+        last_name=model.last_name,
         display_name=model.display_name,
         status=UserStatus(model.status),
         created_at=_utc(model.created_at),
@@ -97,12 +99,26 @@ class SqlAlchemyIdentityRepository:
         model = self.session.scalar(select(UserModel).where(UserModel.email == email.lower()))
         return _user(model) if model else None
 
-    def list_users(self, *, limit: int, offset: int, status: UserStatus | None) -> list[User]:
-        statement = select(UserModel).order_by(UserModel.created_at, UserModel.id)
+    def list_users(
+        self, *, limit: int, offset: int, status: UserStatus | None, q: str | None = None
+    ) -> tuple[list[User], int]:
+        filters = []
         if status is not None:
-            statement = statement.where(UserModel.status == status.value)
+            filters.append(UserModel.status == status.value)
+        if q:
+            filters.append(
+                or_(
+                    UserModel.first_name.icontains(q, autoescape=True),
+                    UserModel.last_name.icontains(q, autoescape=True),
+                    UserModel.display_name.icontains(q, autoescape=True),
+                    UserModel.email.icontains(q, autoescape=True),
+                )
+            )
+        statement = select(UserModel).where(*filters).order_by(UserModel.created_at, UserModel.id)
+        count = select(func.count()).select_from(UserModel).where(*filters)
+        total = self.session.scalar(count) or 0
         rows = self.session.scalars(statement.offset(offset).limit(limit))
-        return [_user(row) for row in rows]
+        return [_user(row) for row in rows], total
 
     def add_role(self, role: Role) -> None:
         self.session.add(self._role_model(role))
@@ -118,10 +134,17 @@ class SqlAlchemyIdentityRepository:
         model = self.session.scalar(select(RoleModel).where(RoleModel.code == code.upper()))
         return _role(model) if model else None
 
-    def list_roles(self, *, active: bool | None) -> list[Role]:
+    def list_roles(self, *, active: bool | None, q: str | None = None) -> list[Role]:
         statement = select(RoleModel).order_by(RoleModel.name, RoleModel.id)
         if active is not None:
             statement = statement.where(RoleModel.active == active)
+        if q:
+            statement = statement.where(
+                or_(
+                    RoleModel.name.icontains(q, autoescape=True),
+                    RoleModel.code.icontains(q, autoescape=True),
+                )
+            )
         return [_role(row) for row in self.session.scalars(statement)]
 
     def get_permissions_by_codes(self, codes: set[str]) -> list[Permission]:
@@ -224,6 +247,8 @@ class SqlAlchemyIdentityRepository:
             id=str(user.id),
             auth0_subject=user.auth0_subject,
             email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
             display_name=user.display_name,
             status=user.status.value,
             created_at=user.created_at,

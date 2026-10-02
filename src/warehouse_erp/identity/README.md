@@ -68,6 +68,18 @@ All management endpoints require the `users.manage` permission:
 - `GET/POST /api/identity/users/{user_id}/role-assignments`
 - `DELETE /api/identity/users/{user_id}/role-assignments/{assignment_id}`
 
+Both list endpoints accept an optional `q` query parameter (maximum 255 characters):
+
+- Users: case-insensitive substring matching against `first_name`, `last_name`, `display_name`, or
+  `email`, combined with `status`, before applying `offset` and `limit`.
+- Roles: case-insensitive substring matching against `name` or `code`, combined with `active`.
+
+Leading and trailing whitespace is ignored. Missing, empty, or whitespace-only queries leave
+results unfiltered. SQL wildcard characters such as `%` and `_` are treated literally.
+For example, `GET /api/identity/users?q=alex&status=ACTIVE&limit=25&offset=0` searches all active
+users before returning the first page. The user list response contains `items` for the requested
+page and `total` for pagination; the default ordering remains unchanged.
+
 `GET /api/identity/me` requires only a valid access token and returns the local status and effective
 permission codes. This is the endpoint the frontend should call immediately after login.
 
