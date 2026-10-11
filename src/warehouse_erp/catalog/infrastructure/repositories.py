@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from warehouse_erp.catalog.domain.entities import (
     Category,
-    IssueStrategy,
     MeasurementUse,
     Package,
     PackageSet,
@@ -16,7 +15,6 @@ from warehouse_erp.catalog.domain.entities import (
     ProductBarcode,
     ProductInventoryPolicy,
     ProductMeasurement,
-    TrackingMode,
     Unit,
     UnitDimension,
 )
@@ -59,6 +57,7 @@ def _unit(model: UnitModel) -> Unit:
         classifier_code=model.classifier_code,
         base_unit_id=UUID(model.base_unit_id) if model.base_unit_id else None,
         factor_to_base=model.factor_to_base,
+        display_decimal_places=model.display_decimal_places,
         precision=model.precision,
         active=model.active,
         created_at=_utc(model.created_at),
@@ -72,18 +71,14 @@ def _product(model: ProductModel) -> Product:
         code=model.code,
         name=model.name,
         category_id=UUID(model.category_id),
+        default_vat_rate_id=UUID(model.default_vat_rate_id) if model.default_vat_rate_id else None,
         storage_unit_id=UUID(model.storage_unit_id),
         package_set_id=UUID(model.package_set_id) if model.package_set_id else None,
         description=model.description,
         brand=model.brand,
         attributes=dict(model.attributes),
         policy=ProductInventoryPolicy(
-            tracking_mode=TrackingMode(model.tracking_mode),
-            issue_strategy=IssueStrategy(model.issue_strategy),
-            negative_stock_allowed=model.negative_stock_allowed,
-            expiry_required=model.expiry_required,
-            mrp_tracking_enabled=model.mrp_tracking_enabled,
-            quality_tracking_enabled=model.quality_tracking_enabled,
+            batch_expiry_required=model.batch_expiry_required,
         ),
         active=model.active,
         created_at=_utc(model.created_at),
@@ -200,6 +195,7 @@ class SqlAlchemyUnitRepository:
             classifier_code=unit.classifier_code,
             base_unit_id=str(unit.base_unit_id) if unit.base_unit_id else None,
             factor_to_base=unit.factor_to_base,
+            display_decimal_places=unit.display_decimal_places,
             precision=unit.precision,
             active=unit.active,
             created_at=unit.created_at,
@@ -211,6 +207,22 @@ class SqlAlchemyProductRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.locked_models: dict[str, ProductModel] = {}
+
+    def validate_vat_reference(self, vat_rate_id: UUID) -> None:
+        from warehouse_erp.configuration.infrastructure.models import VatRateModel
+        from warehouse_erp.configuration.infrastructure.repositories import (
+            SqlAlchemyConfigurationRepository,
+        )
+        from warehouse_erp.shared.errors import ValidationError
+
+        SqlAlchemyConfigurationRepository(self.session).lock()
+        found = self.session.scalar(
+            select(VatRateModel.id)
+            .where(VatRateModel.id == str(vat_rate_id), VatRateModel.active.is_(True))
+            .with_for_update()
+        )
+        if found is None:
+            raise ValidationError("VAT rate is missing or inactive")
 
     def add(self, product: Product) -> None:
         self.session.add(self._model(product))
@@ -272,17 +284,15 @@ class SqlAlchemyProductRepository:
             code=product.code,
             name=product.name,
             category_id=str(product.category_id),
+            default_vat_rate_id=str(product.default_vat_rate_id)
+            if product.default_vat_rate_id
+            else None,
             storage_unit_id=str(product.storage_unit_id),
             package_set_id=str(product.package_set_id) if product.package_set_id else None,
             description=product.description,
             brand=product.brand,
             attributes=product.attributes,
-            tracking_mode=product.policy.tracking_mode.value,
-            issue_strategy=product.policy.issue_strategy.value,
-            negative_stock_allowed=product.policy.negative_stock_allowed,
-            expiry_required=product.policy.expiry_required,
-            mrp_tracking_enabled=product.policy.mrp_tracking_enabled,
-            quality_tracking_enabled=product.policy.quality_tracking_enabled,
+            batch_expiry_required=product.policy.batch_expiry_required,
             active=product.active,
             created_at=product.created_at,
             updated_at=product.updated_at,

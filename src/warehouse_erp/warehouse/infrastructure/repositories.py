@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from warehouse_erp.inventory.domain.policies import IssueStrategy, TrackingMode
 from warehouse_erp.shared.errors import ConflictError
 from warehouse_erp.warehouse.domain.entities import Location, LocationKind, Warehouse
 from warehouse_erp.warehouse.infrastructure.models import LocationModel, WarehouseModel
@@ -20,6 +21,9 @@ def _warehouse(model: WarehouseModel) -> Warehouse:
         code=model.code,
         name=model.name,
         description=model.description,
+        address_storage_enabled=model.address_storage_enabled,
+        tracking_mode=TrackingMode(model.tracking_mode),
+        issue_strategy=IssueStrategy(model.issue_strategy),
         active=model.active,
         created_at=_utc(model.created_at),
         created_by=UUID(model.created_by),
@@ -84,6 +88,9 @@ class SqlAlchemyWarehouseRepository:
             code=item.code,
             name=item.name,
             description=item.description,
+            address_storage_enabled=item.address_storage_enabled,
+            tracking_mode=item.tracking_mode.value,
+            issue_strategy=item.issue_strategy.value,
             active=item.active,
             created_at=item.created_at,
             created_by=str(item.created_by),

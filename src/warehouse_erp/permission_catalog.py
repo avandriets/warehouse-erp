@@ -2,10 +2,12 @@ from collections import Counter
 
 from warehouse_erp.catalog.permissions import PERMISSIONS as CATALOG_PERMISSIONS
 from warehouse_erp.catalog.permissions import CatalogPermission
+from warehouse_erp.configuration.permissions import PERMISSIONS as CONFIGURATION_PERMISSIONS
 from warehouse_erp.identity.permissions import PERMISSIONS as IDENTITY_PERMISSIONS
 from warehouse_erp.inventory.permissions import PERMISSIONS as INVENTORY_PERMISSIONS
 from warehouse_erp.inventory.permissions import InventoryPermission
 from warehouse_erp.settings.permissions import PERMISSIONS as SETTINGS_PERMISSIONS
+from warehouse_erp.settings.permissions import SettingsPermission
 from warehouse_erp.shared.authorization import PermissionDefinition, RoleDefinition
 from warehouse_erp.warehouse.permissions import PERMISSIONS as WAREHOUSE_PERMISSIONS
 from warehouse_erp.warehouse.permissions import WarehousePermission
@@ -16,6 +18,7 @@ PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *INVENTORY_PERMISSIONS,
     *SETTINGS_PERMISSIONS,
     *WAREHOUSE_PERMISSIONS,
+    *CONFIGURATION_PERMISSIONS,
 )
 
 SYSTEM_ROLES: tuple[RoleDefinition, ...] = (
@@ -27,6 +30,7 @@ SYSTEM_ROLES: tuple[RoleDefinition, ...] = (
             {
                 CatalogPermission.READ,
                 WarehousePermission.READ,
+                SettingsPermission.READ,
                 InventoryPermission.READ,
                 InventoryPermission.CREATE_DOCUMENT,
                 InventoryPermission.EDIT_DOCUMENT,
@@ -41,6 +45,7 @@ SYSTEM_ROLES: tuple[RoleDefinition, ...] = (
             {
                 CatalogPermission.READ,
                 WarehousePermission.READ,
+                SettingsPermission.READ,
                 InventoryPermission.READ,
                 InventoryPermission.CREATE_DOCUMENT,
                 InventoryPermission.EDIT_DOCUMENT,

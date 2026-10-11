@@ -119,6 +119,7 @@ class CatalogService:
             name=command.name,
             symbol=command.symbol,
             dimension=command.dimension,
+            display_decimal_places=command.display_decimal_places,
             precision=command.precision,
             classifier_code=command.classifier_code,
             base_unit_id=command.base_unit_id,
@@ -154,6 +155,10 @@ class CatalogService:
             unit.classifier_code = (
                 command.classifier_code.strip() or None if command.classifier_code else None
             )
+        if command.display_decimal_places is not None:
+            if not 0 <= command.display_decimal_places <= 9:
+                raise ValidationError("display_decimal_places must be between 0 and 9")
+            unit.display_decimal_places = command.display_decimal_places
         if command.precision is not None:
             if not 0 <= command.precision <= 6:
                 raise ValidationError("precision must be between 0 and 6")
@@ -331,6 +336,8 @@ class CatalogService:
         if self.uow.products.get_by_code(code):
             raise ConflictError(f"Product with code {code} already exists")
         self._require_active_category(command.category_id)
+        if command.default_vat_rate_id is not None:
+            self.uow.products.validate_vat_reference(command.default_vat_rate_id)
         self._require_active_unit(command.storage_unit_id)
         if command.package_set_id:
             self._validate_package_set(command.package_set_id, command.storage_unit_id)
@@ -338,6 +345,7 @@ class CatalogService:
             code=code,
             name=command.name,
             category_id=command.category_id,
+            default_vat_rate_id=command.default_vat_rate_id,
             storage_unit_id=command.storage_unit_id,
             package_set_id=command.package_set_id,
             description=command.description,
@@ -368,6 +376,8 @@ class CatalogService:
         )
 
     def update_product(self, product_id: UUID, command: UpdateProduct) -> Product:
+        if command.default_vat_rate_id_set and command.default_vat_rate_id is not None:
+            self.uow.products.validate_vat_reference(command.default_vat_rate_id)
         product = self._lock_product(product_id)
         if command.name is not None:
             product.name = validate_name(command.name)
@@ -399,6 +409,8 @@ class CatalogService:
             product.brand = command.brand.strip() or None
         if command.attributes is not None:
             product.attributes = command.attributes
+        if command.default_vat_rate_id_set:
+            product.default_vat_rate_id = command.default_vat_rate_id
         if command.policy is not None:
             product.policy = self._policy(command.policy)
         if command.active is not None:
@@ -606,11 +618,4 @@ class CatalogService:
 
     @staticmethod
     def _policy(data: InventoryPolicyData) -> ProductInventoryPolicy:
-        return ProductInventoryPolicy(
-            tracking_mode=data.tracking_mode,
-            issue_strategy=data.issue_strategy,
-            negative_stock_allowed=data.negative_stock_allowed,
-            expiry_required=data.expiry_required,
-            mrp_tracking_enabled=data.mrp_tracking_enabled,
-            quality_tracking_enabled=data.quality_tracking_enabled,
-        )
+        return ProductInventoryPolicy(batch_expiry_required=data.batch_expiry_required)

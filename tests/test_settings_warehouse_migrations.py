@@ -38,7 +38,7 @@ def test_settings_and_warehouse_upgrade_from_existing_catalog(
             .scalars()
             .all()
         )
-    assert definitions == ["inventory.default_issue_strategy", "inventory.negative_stock_allowed"]
+    assert definitions == ["inventory.negative_stock_allowed"]
     assert permissions == ["settings.read", "warehouse.read"]
     engine.dispose()
     command.downgrade(config, "20260921_0004")

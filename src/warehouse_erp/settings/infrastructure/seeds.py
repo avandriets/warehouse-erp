@@ -27,13 +27,6 @@ def seed_settings_defaults(session: Session) -> None:
     scopes = ["GLOBAL", "COMPANY", "WAREHOUSE", "CATEGORY", "PRODUCT"]
     definitions = (
         (
-            "inventory.default_issue_strategy",
-            "Default stock issue strategy",
-            "ENUM",
-            "MANUAL",
-            ["MANUAL", "FIFO", "FEFO"],
-        ),
-        (
             "inventory.negative_stock_allowed",
             "Allow negative stock by default",
             "BOOLEAN",

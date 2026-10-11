@@ -4,9 +4,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from warehouse_erp.catalog.permissions import CatalogPermission
 from warehouse_erp.database import get_db_session
 from warehouse_erp.identity.api.dependencies import get_current_user, require_permission
-from warehouse_erp.identity.domain.entities import CurrentUser
+from warehouse_erp.identity.domain.entities import CurrentUser, ScopeType
 from warehouse_erp.settings.api.schemas import (
     CategoryCreate,
     CategoryResponse,
@@ -18,9 +19,11 @@ from warehouse_erp.settings.api.schemas import (
     ValueUpsert,
 )
 from warehouse_erp.settings.application.service import SettingsService
-from warehouse_erp.settings.domain.entities import SettingsContext
+from warehouse_erp.settings.domain.entities import SettingsContext, SettingScope
 from warehouse_erp.settings.infrastructure.repositories import SqlAlchemySettingsUnitOfWork
 from warehouse_erp.settings.permissions import SettingsPermission
+from warehouse_erp.shared.errors import ForbiddenError
+from warehouse_erp.warehouse.permissions import WarehousePermission
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -95,6 +98,15 @@ def list_values(key: str, service: Service) -> object:
     dependencies=[Depends(require_permission(SettingsPermission.MANAGE))],
 )
 def set_value(key: str, payload: ValueUpsert, service: Service, actor: Actor) -> object:
+    if payload.scope_type is SettingScope.WAREHOUSE and not actor.has_permission(
+        WarehousePermission.MANAGE, scope_type=ScopeType.WAREHOUSE, scope_id=payload.scope_id
+    ):
+        raise ForbiddenError("Permission required: warehouse.manage")
+    if payload.scope_type in {
+        SettingScope.PRODUCT,
+        SettingScope.CATEGORY,
+    } and not actor.has_permission(CatalogPermission.EDIT):
+        raise ForbiddenError("Permission required: catalog.edit")
     return service.set_value(key=key, actor_id=actor.user_id, **payload.model_dump())
 
 

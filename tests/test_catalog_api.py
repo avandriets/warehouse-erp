@@ -24,7 +24,7 @@ def _create_foundation(client: TestClient) -> tuple[dict, dict]:
     return category_response.json(), unit_response.json()
 
 
-def test_catalog_flow_creates_batch_tracked_product(client: TestClient) -> None:
+def test_catalog_flow_creates_product_with_expiry_requirement(client: TestClient) -> None:
     category, unit = _create_foundation(client)
 
     response = client.post(
@@ -37,9 +37,7 @@ def test_catalog_flow_creates_batch_tracked_product(client: TestClient) -> None:
             "brand": "Marlboro",
             "attributes": {"pack_size": 20},
             "policy": {
-                "tracking_mode": "BATCH",
-                "issue_strategy": "FEFO",
-                "expiry_required": True,
+                "batch_expiry_required": True,
             },
         },
     )
@@ -48,8 +46,7 @@ def test_catalog_flow_creates_batch_tracked_product(client: TestClient) -> None:
     product = response.json()
     assert product["code"] == "MLB-RED-20"
     assert product["storage_unit_id"] == unit["id"]
-    assert product["policy"]["tracking_mode"] == "BATCH"
-    assert product["policy"]["issue_strategy"] == "FEFO"
+    assert product["policy"] == {"batch_expiry_required": True}
 
     listed = client.get(f"/api/catalog/products?category_id={category['id']}")
     assert listed.status_code == 200
@@ -109,7 +106,7 @@ def test_invalid_fefo_policy_returns_domain_validation_error(client: TestClient)
     )
 
     assert response.status_code == 422
-    assert "FEFO" in response.json()["detail"]
+    assert any(item["type"] == "extra_forbidden" for item in response.json()["detail"])
 
 
 def test_inactive_category_is_rejected_for_new_product(client: TestClient) -> None:

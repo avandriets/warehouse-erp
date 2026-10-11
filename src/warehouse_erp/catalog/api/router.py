@@ -314,6 +314,7 @@ def update_product(product_id: UUID, payload: ProductUpdate, service: Service) -
         UpdateProduct(
             **data,
             policy=policy,
+            default_vat_rate_id_set="default_vat_rate_id" in payload.model_fields_set,
             package_set_id_set="package_set_id" in payload.model_fields_set,
         ),
     )

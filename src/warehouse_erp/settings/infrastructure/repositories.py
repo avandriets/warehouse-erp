@@ -6,6 +6,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from warehouse_erp.catalog.infrastructure.models import CategoryModel, ProductModel
+from warehouse_erp.inventory.domain.policies import (
+    IssueStrategy,
+    TrackingMode,
+    WarehouseInventoryPolicy,
+)
 from warehouse_erp.settings.domain.entities import (
     SettingDefinition,
     SettingsCategory,
@@ -18,7 +23,7 @@ from warehouse_erp.settings.infrastructure.models import (
     SettingsCategoryModel,
     SettingValueModel,
 )
-from warehouse_erp.shared.errors import ConflictError
+from warehouse_erp.shared.errors import ConflictError, NotFoundError
 from warehouse_erp.warehouse.infrastructure.models import WarehouseModel
 
 
@@ -209,6 +214,22 @@ class SqlAlchemySettingScopeRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def cost_accounting_enabled(self, *, lock: bool = False) -> bool:
+        from warehouse_erp.configuration.application.service import settings_id
+        from warehouse_erp.configuration.infrastructure.models import AccountingSettingsModel
+        from warehouse_erp.configuration.infrastructure.repositories import (
+            SqlAlchemyConfigurationRepository,
+        )
+
+        if lock:
+            SqlAlchemyConfigurationRepository(self.session).lock()
+        query = select(AccountingSettingsModel.cost_accounting_enabled).where(
+            AccountingSettingsModel.id == str(settings_id("accounting"))
+        )
+        if lock:
+            query = query.with_for_update()
+        return self.session.scalar(query) is True
+
     def product_category(self, product_id: UUID) -> UUID | None:
         model = self.session.get(ProductModel, str(product_id))
         return UUID(model.category_id) if model else None
@@ -218,3 +239,17 @@ class SqlAlchemySettingScopeRepository:
 
     def warehouse_exists(self, warehouse_id: UUID) -> bool:
         return self.session.get(WarehouseModel, str(warehouse_id)) is not None
+
+    def warehouse_inventory_policy(self, warehouse_id: UUID) -> WarehouseInventoryPolicy:
+        model = self.session.get(WarehouseModel, str(warehouse_id))
+        if model is None:
+            raise NotFoundError("Warehouse scope target not found")
+        return WarehouseInventoryPolicy(
+            TrackingMode(model.tracking_mode), IssueStrategy(model.issue_strategy)
+        )
+
+    def product_expiry_required(self, product_id: UUID) -> bool:
+        model = self.session.get(ProductModel, str(product_id))
+        if model is None:
+            raise NotFoundError("Product scope target not found")
+        return model.batch_expiry_required

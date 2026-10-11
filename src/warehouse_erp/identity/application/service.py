@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import UUID
 
 from warehouse_erp.identity.application.commands import (
@@ -46,12 +47,27 @@ class IdentityService:
             self.uow.identity.add_user(user)
             self.uow.commit()
         grants = tuple(self.uow.identity.list_grants(user.id))
-        return CurrentUser(
+        current = CurrentUser(
             user_id=user.id,
+            default_warehouse_id=user.default_warehouse_id,
             subject=identity.subject,
             status=user.status,
             grants=grants,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            display_name=user.display_name,
+            email=user.email,
         )
+
+        warehouse_id = current.default_warehouse_id
+        if warehouse_id is not None and (
+            not current.has_permission(
+                "warehouse.read", scope_type=ScopeType.WAREHOUSE, scope_id=warehouse_id
+            )
+            or not self.uow.identity.active_warehouse_exists(warehouse_id)
+        ):
+            current = replace(current, default_warehouse_id=None)
+        return current
 
     def get_user(self, actor: CurrentUser, user_id: UUID) -> User:
         self._require_manage_users(actor)
@@ -106,6 +122,49 @@ class IdentityService:
             first_name=command.first_name,
             last_name=command.last_name,
             display_name=command.display_name,
+            actor_id=actor.user_id,
+        )
+        self.uow.identity.save_user(user)
+        self.uow.commit()
+        return user
+
+    def update_own_profile(self, actor: CurrentUser, changes: dict) -> User:
+        if actor.status is not UserStatus.ACTIVE:
+            raise ForbiddenError("User account is not active")
+        if set(changes) - {
+            "email",
+            "first_name",
+            "last_name",
+            "display_name",
+            "default_warehouse_id",
+        }:
+            raise ValidationError("Own-profile field is not editable")
+        user = self.uow.identity.get_user_for_update(actor.user_id)
+        if user is None:
+            raise NotFoundError("User not found")
+        if "default_warehouse_id" in changes:
+            warehouse_id = changes["default_warehouse_id"]
+            if warehouse_id is not None:
+                if not actor.has_permission(
+                    "warehouse.read", scope_type=ScopeType.WAREHOUSE, scope_id=warehouse_id
+                ):
+                    raise ForbiddenError("Default warehouse is not accessible")
+                if not self.uow.identity.active_warehouse_exists(warehouse_id, lock=True):
+                    raise ValidationError("Default warehouse is missing or inactive")
+            user.default_warehouse_id = warehouse_id
+        email = normalize_email(changes.get("email", user.email))
+        if email:
+            duplicate = self.uow.identity.get_user_by_email(email)
+            if duplicate and duplicate.id != user.id:
+                raise ConflictError("User with this email already exists")
+        user.update_profile(
+            email=email,
+            first_name=changes.get("first_name", user.first_name),
+            last_name=changes.get("last_name", user.last_name),
+            display_name=changes.get(
+                "display_name",
+                None if {"first_name", "last_name"} & changes.keys() else user.display_name,
+            ),
             actor_id=actor.user_id,
         )
         self.uow.identity.save_user(user)

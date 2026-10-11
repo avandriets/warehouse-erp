@@ -6,6 +6,7 @@ from time import monotonic
 from typing import Any
 from uuid import UUID
 
+from warehouse_erp.inventory.domain.policies import IssueStrategy, TrackingMode
 from warehouse_erp.settings.domain.entities import (
     ResolvedSetting,
     SettingDefinition,
@@ -23,19 +24,14 @@ from warehouse_erp.shared.errors import ConflictError, NotFoundError, Validation
 
 
 class SettingsKey(StrEnum):
-    DEFAULT_ISSUE_STRATEGY = "inventory.default_issue_strategy"
     NEGATIVE_STOCK_ALLOWED = "inventory.negative_stock_allowed"
-
-
-class InventoryIssueStrategy(StrEnum):
-    MANUAL = "MANUAL"
-    FIFO = "FIFO"
-    FEFO = "FEFO"
 
 
 @dataclass(frozen=True, slots=True)
 class InventoryDefaults:
-    issue_strategy: InventoryIssueStrategy
+    tracking_mode: TrackingMode | None
+    issue_strategy: IssueStrategy | None
+    batch_expiry_required: bool | None
     negative_stock_allowed: bool
     resolved_at: datetime
 
@@ -101,6 +97,14 @@ class SettingsService:
         is_required: bool,
         options: tuple[str, ...],
     ) -> SettingDefinition:
+        key = validate_code(key)
+        if key in {
+            "inventory.default_issue_strategy",
+            "inventory.tracking_mode",
+            "inventory.issue_strategy",
+            "inventory.batch_expiry_required",
+        }:
+            raise ValidationError("Use explicit Warehouse/Product inventory policy fields")
         if not self.uow.categories.get(category_id):
             raise NotFoundError("Settings category not found")
         item = SettingDefinition(
@@ -144,6 +148,11 @@ class SettingsService:
         expected_version: int | None = None,
     ) -> SettingValue:
         definition = self.get_definition(key)
+        if definition.key == SettingsKey.NEGATIVE_STOCK_ALLOWED:
+            if self.uow.scopes.cost_accounting_enabled(lock=True):
+                raise ValidationError(
+                    "Negative-stock setting is unavailable while cost accounting is enabled"
+                )
         if scope_type not in definition.allowed_scopes:
             raise ValidationError("Scope is not allowed for this setting")
         self._validate_scope_target(scope_type, scope_id)
@@ -194,14 +203,42 @@ class SettingsService:
 
     def resolve_inventory_defaults(self, context: SettingsContext) -> InventoryDefaults:
         context = self._normalize_context(context)
-        cached = self.cache.get(context)
-        if cached is not None:
+        # Read explicit policies before using the cache: warehouse/catalog changes do not
+        # pass through settings cache invalidation, and must be visible immediately.
+        warehouse_policy = (
+            self.uow.scopes.warehouse_inventory_policy(context.warehouse_id)
+            if context.warehouse_id is not None
+            else None
+        )
+        expiry = (
+            self.uow.scopes.product_expiry_required(context.product_id)
+            if context.product_id is not None
+            else None
+        )
+        if warehouse_policy is not None and expiry is not None:
+            warehouse_policy.validate_product(batch_expiry_required=expiry)
+        tracking = warehouse_policy.tracking_mode if warehouse_policy else None
+        strategy = (
+            warehouse_policy.issue_strategy
+            if warehouse_policy and tracking is TrackingMode.BATCH
+            else None
+        )
+        cost_enabled = self.uow.scopes.cost_accounting_enabled()
+        cached = self.cache.get(context) if not cost_enabled else None
+        if cached is not None and (
+            cached.tracking_mode,
+            cached.issue_strategy,
+            cached.batch_expiry_required,
+        ) == (tracking, strategy, expiry):
             return cached
-        strategy = self.resolve(SettingsKey.DEFAULT_ISSUE_STRATEGY, context).value
-        negative = self.resolve(SettingsKey.NEGATIVE_STOCK_ALLOWED, context).value
-        if strategy not in InventoryIssueStrategy or type(negative) is not bool:
+        negative = (
+            False
+            if cost_enabled
+            else self.resolve(SettingsKey.NEGATIVE_STOCK_ALLOWED, context).value
+        )
+        if type(negative) is not bool:
             raise ValidationError("Inventory defaults are not valid")
-        snapshot = InventoryDefaults(InventoryIssueStrategy(strategy), negative, datetime.now(UTC))
+        snapshot = InventoryDefaults(tracking, strategy, expiry, negative, datetime.now(UTC))
         self.cache.put(context, snapshot)
         return snapshot
 

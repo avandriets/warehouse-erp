@@ -119,26 +119,16 @@ independently are separate products with separate codes.
 
 ## Inventory policy
 
-`tracking_mode` determines whether inventory is tracked by batch:
+Product policy contains only `batch_expiry_required`. Expiry dates themselves belong to
+receipt-line batches. Tracking (`NONE`/`BATCH`) and issue allocation (`MANUAL`/`FIFO`/`FEFO`)
+are explicit Warehouse settings; Product/Category overrides cannot change them. A Product
+requiring expiry may hold stock only in BATCH warehouses.
 
-- `NONE` — no batch tracking;
-- `BATCH` — inventory operations identify a batch.
+Product policy JSON is `{"batch_expiry_required": true}`. Removed fields are rejected with
+422, including the old `expiry_required` name, tracking/allocation, negative-stock flags,
+MRP, and quality flags. Negative stock is resolved through scoped settings instead.
 
-`issue_strategy` determines stock selection for outbound operations:
-
-- `MANUAL` — the operator selects stock explicitly;
-- `FIFO` — oldest received stock is issued first;
-- `FEFO` — stock with the nearest expiry date is issued first.
-
-Domain invariants:
-
-- `expiry_required=true` requires `tracking_mode=BATCH`;
-- `issue_strategy=FEFO` requires `tracking_mode=BATCH`;
-- product codes and barcode values are globally unique in their respective tables;
-- a new product requires an active category and unit.
-
-The policy reserves `mrp_tracking_enabled` and `quality_tracking_enabled` for future manufacturing
-and quality-control modules. Those flags do not implement their workflows inside the catalog.
+Product codes and barcodes remain unique; new Products require an active category and unit.
 
 ## Lifecycle
 
@@ -203,3 +193,8 @@ API -> Application -> Domain
 
 Do not add stock balances, inventory movements, or BOM lines to this module. Those belong to their
 respective modules and reference catalog product identifiers.
+
+Units now expose independent `display_decimal_places` (0–9), editable without changing
+`precision`, conversion results or stored quantities. Migration preserves the previous precision
+as the initial display precision. Products also support nullable `default_vat_rate_id`;
+selected rates must exist and be active in the configuration VAT directory.

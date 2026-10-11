@@ -30,17 +30,6 @@ def validate_name(value: str, field_name: str = "name") -> str:
     return normalized
 
 
-class TrackingMode(StrEnum):
-    NONE = "NONE"
-    BATCH = "BATCH"
-
-
-class IssueStrategy(StrEnum):
-    MANUAL = "MANUAL"
-    FIFO = "FIFO"
-    FEFO = "FEFO"
-
-
 class UnitDimension(StrEnum):
     COUNT = "COUNT"
     MASS = "MASS"
@@ -62,21 +51,7 @@ class MeasurementUse(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ProductInventoryPolicy:
-    tracking_mode: TrackingMode = TrackingMode.NONE
-    issue_strategy: IssueStrategy = IssueStrategy.MANUAL
-    negative_stock_allowed: bool = False
-    expiry_required: bool = False
-    mrp_tracking_enabled: bool = False
-    quality_tracking_enabled: bool = False
-
-    def __post_init__(self) -> None:
-        if self.expiry_required and self.tracking_mode is not TrackingMode.BATCH:
-            raise ValidationError("expiry_required can only be enabled for batch-tracked products")
-        if (
-            self.issue_strategy is IssueStrategy.FEFO
-            and self.tracking_mode is not TrackingMode.BATCH
-        ):
-            raise ValidationError("FEFO can only be used for batch-tracked products")
+    batch_expiry_required: bool = False
 
 
 @dataclass(slots=True)
@@ -101,6 +76,7 @@ class Unit:
     name: str
     symbol: str
     dimension: UnitDimension
+    display_decimal_places: int = 3
     precision: int = 3
     id: UUID = field(default_factory=uuid4)
     classifier_code: str | None = None
@@ -120,6 +96,8 @@ class Unit:
             raise ValidationError("unit symbol must not exceed 32 characters")
         if self.classifier_code is not None:
             self.classifier_code = self.classifier_code.strip() or None
+        if not 0 <= self.display_decimal_places <= 9:
+            raise ValidationError("display_decimal_places must be between 0 and 9")
         if not 0 <= self.precision <= 6:
             raise ValidationError("precision must be between 0 and 6")
         if (self.base_unit_id is None) != (self.factor_to_base is None):
@@ -240,6 +218,7 @@ class Product:
     storage_unit_id: UUID
     policy: ProductInventoryPolicy = field(default_factory=ProductInventoryPolicy)
     id: UUID = field(default_factory=uuid4)
+    default_vat_rate_id: UUID | None = None
     package_set_id: UUID | None = None
     description: str | None = None
     brand: str | None = None

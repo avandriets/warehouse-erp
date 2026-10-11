@@ -19,6 +19,11 @@ local user to an Auth0 `sub`, avoiding accidental account takeover when email da
 
 User states are `INVITED`, `PENDING_APPROVAL`, `ACTIVE`, and `SUSPENDED`.
 
+`GET /api/identity/me` includes the local ERP profile fields `first_name`, `last_name`,
+`display_name`, and `email` (nullable), alongside identity, status, and permissions.
+The caller can read their own profile without `users.manage`; these fields come from the ERP
+user record, not Auth0 claims.
+
 ## Authorization model
 
 - Permissions are stable application codes such as `catalog.read`, `catalog.create`,
@@ -108,3 +113,10 @@ be run in a trusted local or deployment environment and does not call the Auth0 
 
 Database changes belong in Alembic migrations. Keep business rules out of API and SQLAlchemy
 models so the module can later be extracted into a service without rewriting its core logic.
+
+`PATCH /api/identity/me` allows the authenticated active user to edit first/last/display name,
+email and `default_warehouse_id` without `users.manage`. Omitted fields remain unchanged;
+explicit null clears a nullable field. Unknown fields, roles, status and external identity are
+rejected. The default must be an active warehouse accessible under `warehouse.read`.
+`GET /api/identity/me` returns its effective value; inactive/inaccessible defaults become null
+in the response so the client can request a new selection. Both clients use this same profile.

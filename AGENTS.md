@@ -13,7 +13,7 @@
   entity without a demonstrated variant requirement.
 - Categories form an adjacency-list tree through `parent_id`; prevent hierarchy cycles.
 - Existing catalog records are deactivated, not destructively deleted.
-- Inventory policies are typed. `FEFO` and `expiry_required` require `BATCH` tracking.
+- Inventory policies are typed. Warehouse settings own `tracking_mode` and `issue_strategy`, with no Product/Category overrides. Product policy owns `batch_expiry_required`; Products requiring expiry can hold stock only in BATCH warehouses. FEFO requires BATCH tracking and expiry data.
 - Treat codes as stable identifiers. Do not add code-changing endpoints without a migration/audit policy.
 
 ## Future inventory work
@@ -24,7 +24,7 @@
 - Posted documents and ledger movements are immutable; corrections use explicit reversals.
 - Every movement must reference its source document, source line, and catalog product.
 - Planned orders do not affect stock; they generate real stock documents.
-- Receipt-like documents form accounting batches through their posted receipt-line origins when batch tracking is enabled; there is no standalone manually maintained Batch directory. Transfers and reversals preserve the original receipt-line batch reference.
+- Receipt-like documents form accounting batches through their posted receipt-line origins when batch tracking is enabled; there is no standalone manually maintained Batch directory. Transfers and reversals preserve the original receipt-line batch reference. V1 rejects transfers between warehouses with different tracking modes in either direction.
 - Current stock is read from rebuildable totals maintained atomically with document movements; the immutable ledger remains authoritative. Use period snapshots plus interval movements for historical balances. Never edit totals directly. See docs/specs/warehouse.md section 10.
 - Negative stock is forbidden by default and may be enabled through the resolved inventory policy; enforce the setting under concurrency without bypassing other posting invariants.
 - Cost accounting always forbids negative stock, overriding all inventory settings; the cost-accounting mode is chosen before first stock posting and locked afterward. No provisional negative-stock costing is required in V1.
@@ -34,7 +34,7 @@
 
 - General Enterprise/Accounting/Warehouses/Documents settings are editable in the admin app and read-only in the warehouse app. Both apps use the same own-user profile/preferences. Enforce backend permissions and structural locks independently of UI placement; see specification section 11.11.
 - Resolve settings to typed snapshots; domain code must not fetch arbitrary string keys.
-- Scoped setting precedence is Product, Category, Warehouse, Company, Global, then default.
+- Scoped setting precedence is Product, Category, Warehouse, Company, Global, then default only for settings that explicitly allow these scopes. Warehouse tracking/allocation and the Product expiry requirement are explicit settings outside this override chain. Lock warehouse tracking mode after its first stock posting.
 - Resolve a posting policy once per transaction; do not change its meaning mid-posting.
 - Lock structural accounting settings after first relevant posting, including opening balances; enforce locks in the API and under concurrency. Drafts do not lock settings, and reversals or zero stock do not unlock them. See docs/specs/warehouse.md section 11.10.
 - Warehouse locations use an adjacency-list tree; reject cycles and cross-warehouse parents.

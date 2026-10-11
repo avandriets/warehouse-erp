@@ -3,6 +3,11 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from warehouse_erp.inventory.domain.policies import (
+    IssueStrategy,
+    TrackingMode,
+    WarehouseInventoryPolicy,
+)
 from warehouse_erp.shared.errors import ValidationError
 
 
@@ -40,6 +45,9 @@ class Warehouse:
     name: str
     id: UUID = field(default_factory=uuid4)
     description: str | None = None
+    address_storage_enabled: bool = False
+    tracking_mode: TrackingMode = TrackingMode.NONE
+    issue_strategy: IssueStrategy = IssueStrategy.MANUAL
     active: bool = True
     created_at: datetime = field(default_factory=utc_now)
     created_by: UUID | None = None
@@ -49,6 +57,11 @@ class Warehouse:
     def __post_init__(self) -> None:
         self.code = normalize_code(self.code)
         self.name = validate_name(self.name)
+        WarehouseInventoryPolicy(self.tracking_mode, self.issue_strategy)
+
+    @property
+    def inventory_policy(self) -> WarehouseInventoryPolicy:
+        return WarehouseInventoryPolicy(self.tracking_mode, self.issue_strategy)
 
 
 @dataclass(slots=True)

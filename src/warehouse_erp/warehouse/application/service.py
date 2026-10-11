@@ -1,5 +1,10 @@
 from uuid import UUID
 
+from warehouse_erp.inventory.domain.policies import (
+    IssueStrategy,
+    TrackingMode,
+    WarehouseInventoryPolicy,
+)
 from warehouse_erp.shared.errors import ConflictError, NotFoundError, ValidationError
 from warehouse_erp.warehouse.domain.entities import (
     Location,
@@ -17,7 +22,15 @@ class WarehouseService:
         self.uow = unit_of_work
 
     def create_warehouse(
-        self, *, code: str, name: str, description: str | None, actor_id: UUID
+        self,
+        *,
+        code: str,
+        name: str,
+        description: str | None,
+        actor_id: UUID,
+        address_storage_enabled: bool = False,
+        tracking_mode: TrackingMode = TrackingMode.NONE,
+        issue_strategy: IssueStrategy = IssueStrategy.MANUAL,
     ) -> Warehouse:
         normalized = normalize_code(code)
         if self.uow.warehouses.get_by_code(normalized):
@@ -26,6 +39,9 @@ class WarehouseService:
             code=normalized,
             name=name,
             description=description,
+            address_storage_enabled=address_storage_enabled,
+            tracking_mode=tracking_mode,
+            issue_strategy=issue_strategy,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -55,8 +71,19 @@ class WarehouseService:
         description_set: bool,
         active: bool | None,
         actor_id: UUID,
+        address_storage_enabled: bool | None = None,
+        tracking_mode: TrackingMode | None = None,
+        issue_strategy: IssueStrategy | None = None,
     ) -> Warehouse:
         item = self.get_warehouse(warehouse_id)
+        policy = WarehouseInventoryPolicy(
+            tracking_mode if tracking_mode is not None else item.tracking_mode,
+            issue_strategy if issue_strategy is not None else item.issue_strategy,
+        )
+        if address_storage_enabled is not None:
+            item.address_storage_enabled = address_storage_enabled
+        item.tracking_mode = policy.tracking_mode
+        item.issue_strategy = policy.issue_strategy
         if name is not None:
             item.name = validate_name(name)
         if description_set:

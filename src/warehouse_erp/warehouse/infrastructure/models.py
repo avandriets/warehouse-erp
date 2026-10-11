@@ -22,6 +22,9 @@ class WarehouseModel(Base):
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    address_storage_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tracking_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="NONE")
+    issue_strategy: Mapped[str] = mapped_column(String(16), nullable=False, default="MANUAL")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(
@@ -32,7 +35,17 @@ class WarehouseModel(Base):
         String(36), ForeignKey("identity_users.id", ondelete="RESTRICT"), nullable=False
     )
 
-    __table_args__ = (Index("ix_warehouses_active_name", "active", "name"),)
+    __table_args__ = (
+        CheckConstraint("tracking_mode IN ('NONE', 'BATCH')", name="ck_warehouse_tracking_mode"),
+        CheckConstraint(
+            "issue_strategy IN ('MANUAL', 'FIFO', 'FEFO')", name="ck_warehouse_issue_strategy"
+        ),
+        CheckConstraint(
+            "tracking_mode = 'BATCH' OR issue_strategy = 'MANUAL'",
+            name="ck_warehouse_strategy_requires_batch",
+        ),
+        Index("ix_warehouses_active_name", "active", "name"),
+    )
 
 
 class LocationModel(Base):

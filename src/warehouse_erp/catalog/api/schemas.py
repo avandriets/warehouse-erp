@@ -6,10 +6,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from warehouse_erp.catalog.domain.entities import (
-    IssueStrategy,
     MeasurementUse,
     PackageSetKind,
-    TrackingMode,
     UnitDimension,
 )
 
@@ -46,6 +44,7 @@ class UnitCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     symbol: str = Field(min_length=1, max_length=32)
     dimension: UnitDimension
+    display_decimal_places: int = Field(default=3, ge=0, le=9)
     precision: int = Field(default=3, ge=0, le=6)
     classifier_code: str | None = Field(default=None, max_length=32)
     base_unit_id: UUID | None = None
@@ -57,6 +56,7 @@ class UnitUpdate(BaseModel):
     symbol: str | None = Field(default=None, min_length=1, max_length=32)
     dimension: UnitDimension | None = None
     classifier_code: str | None = Field(default=None, max_length=32)
+    display_decimal_places: int | None = Field(default=None, ge=0, le=9)
     precision: int | None = Field(default=None, ge=0, le=6)
     active: bool | None = None
 
@@ -72,6 +72,7 @@ class UnitResponse(BaseModel):
     classifier_code: str | None
     base_unit_id: UUID | None
     factor_to_base: Decimal | None
+    display_decimal_places: int
     precision: int
     active: bool
     created_at: datetime
@@ -201,17 +202,13 @@ class UnitConversionResponse(BaseModel):
 
 
 class InventoryPolicySchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
-    tracking_mode: TrackingMode = TrackingMode.NONE
-    issue_strategy: IssueStrategy = IssueStrategy.MANUAL
-    negative_stock_allowed: bool = False
-    expiry_required: bool = False
-    mrp_tracking_enabled: bool = False
-    quality_tracking_enabled: bool = False
+    batch_expiry_required: bool = False
 
 
 class ProductCreate(BaseModel):
+    default_vat_rate_id: UUID | None = None
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
     category_id: UUID
@@ -224,6 +221,7 @@ class ProductCreate(BaseModel):
 
 
 class ProductUpdate(BaseModel):
+    default_vat_rate_id: UUID | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     category_id: UUID | None = None
     storage_unit_id: UUID | None = None
@@ -236,6 +234,7 @@ class ProductUpdate(BaseModel):
 
 
 class ProductResponse(BaseModel):
+    default_vat_rate_id: UUID | None
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID

@@ -31,6 +31,9 @@ def _utc(value: datetime) -> datetime:
 def _user(model: UserModel) -> User:
     return User(
         id=UUID(model.id),
+        default_warehouse_id=UUID(model.default_warehouse_id)
+        if model.default_warehouse_id
+        else None,
         auth0_subject=model.auth0_subject,
         email=model.email,
         first_name=model.first_name,
@@ -78,6 +81,25 @@ def _assignment(model: RoleAssignmentModel) -> RoleAssignment:
 class SqlAlchemyIdentityRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def active_warehouse_exists(self, warehouse_id: UUID, *, lock: bool = False) -> bool:
+        from warehouse_erp.warehouse.infrastructure.models import WarehouseModel
+
+        query = select(WarehouseModel.id).where(
+            WarehouseModel.id == str(warehouse_id), WarehouseModel.active.is_(True)
+        )
+        if lock:
+            query = query.with_for_update()
+        return self.session.scalar(query) is not None
+
+    def get_user_for_update(self, user_id: UUID) -> User | None:
+        model = self.session.scalar(
+            select(UserModel)
+            .where(UserModel.id == str(user_id))
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return _user(model) if model else None
 
     def add_user(self, user: User) -> None:
         self.session.add(self._user_model(user))
@@ -245,6 +267,9 @@ class SqlAlchemyIdentityRepository:
     def _user_model(user: User) -> UserModel:
         return UserModel(
             id=str(user.id),
+            default_warehouse_id=str(user.default_warehouse_id)
+            if user.default_warehouse_id
+            else None,
             auth0_subject=user.auth0_subject,
             email=user.email,
             first_name=user.first_name,

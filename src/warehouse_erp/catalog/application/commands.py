@@ -4,22 +4,15 @@ from typing import Any
 from uuid import UUID
 
 from warehouse_erp.catalog.domain.entities import (
-    IssueStrategy,
     MeasurementUse,
     PackageSetKind,
-    TrackingMode,
     UnitDimension,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class InventoryPolicyData:
-    tracking_mode: TrackingMode = TrackingMode.NONE
-    issue_strategy: IssueStrategy = IssueStrategy.MANUAL
-    negative_stock_allowed: bool = False
-    expiry_required: bool = False
-    mrp_tracking_enabled: bool = False
-    quality_tracking_enabled: bool = False
+    batch_expiry_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +38,7 @@ class CreateUnit:
     name: str
     symbol: str
     dimension: UnitDimension
+    display_decimal_places: int = 3
     precision: int = 3
     classifier_code: str | None = None
     base_unit_id: UUID | None = None
@@ -58,6 +52,7 @@ class UpdateUnit:
     dimension: UnitDimension | None = None
     classifier_code: str | None = None
     classifier_code_set: bool = False
+    display_decimal_places: int | None = None
     precision: int | None = None
     active: bool | None = None
 
@@ -111,6 +106,7 @@ class CreateProduct:
     name: str
     category_id: UUID
     storage_unit_id: UUID
+    default_vat_rate_id: UUID | None = None
     package_set_id: UUID | None = None
     description: str | None = None
     brand: str | None = None
@@ -120,6 +116,8 @@ class CreateProduct:
 
 @dataclass(frozen=True, slots=True)
 class UpdateProduct:
+    default_vat_rate_id: UUID | None = None
+    default_vat_rate_id_set: bool = False
     name: str | None = None
     category_id: UUID | None = None
     storage_unit_id: UUID | None = None

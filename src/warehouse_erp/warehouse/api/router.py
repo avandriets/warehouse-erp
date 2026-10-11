@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from warehouse_erp.database import get_db_session
 from warehouse_erp.identity.api.dependencies import get_current_user, require_permission
 from warehouse_erp.identity.domain.entities import CurrentUser, ScopeType, UserStatus
+from warehouse_erp.settings.permissions import SettingsPermission
 from warehouse_erp.shared.errors import ForbiddenError
 from warehouse_erp.warehouse.api.schemas import (
     LocationCreate,
@@ -49,6 +50,9 @@ def _access(
     dependencies=[Depends(require_permission(WarehousePermission.MANAGE))],
 )
 def create_warehouse(payload: WarehouseCreate, service: Service, actor: Actor) -> object:
+    if {"tracking_mode", "issue_strategy", "address_storage_enabled"} & payload.model_fields_set:
+        if not actor.has_permission(SettingsPermission.MANAGE):
+            raise ForbiddenError("Permission required: settings.manage")
     return service.create_warehouse(**payload.model_dump(), actor_id=actor.user_id)
 
 
@@ -90,6 +94,9 @@ def update_warehouse(
     warehouse_id: UUID, payload: WarehouseUpdate, service: Service, actor: Actor
 ) -> object:
     _access(actor, WarehousePermission.MANAGE, warehouse_id)
+    if {"tracking_mode", "issue_strategy", "address_storage_enabled"} & payload.model_fields_set:
+        if not actor.has_permission(SettingsPermission.MANAGE):
+            raise ForbiddenError("Permission required: settings.manage")
     return service.update_warehouse(
         warehouse_id,
         **payload.model_dump(),

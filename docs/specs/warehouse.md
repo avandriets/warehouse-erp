@@ -42,23 +42,24 @@ The domain must not depend on FastAPI, SQLAlchemy, HTTP, or database-specific ty
 - Inventory, document lines, batches, and stock balances reference `product_id`; inventory does not own catalog descriptions or images.
 - Each separately tracked item is represented by a Product record, including items distinguished by variant attributes.
 
-Separate stock tracking from issue allocation:
+Separate warehouse stock tracking from issue allocation. Warehouse settings apply to every Product stored in that warehouse; Product and Category overrides cannot change these settings.
 
-- `tracking_mode = NONE`: keep balances by Product, Location, and enabled storage analytics without identifying receipt batches.
-- `tracking_mode = BATCH`: additionally retain batch identity from receipt through issue and transfer. This is a storage/accounting mode, not an issue algorithm.
-- For batch-tracked products, `issue_strategy` chooses which available batches to consume: `MANUAL` selects batches explicitly, `FIFO` prioritizes receipt order, and `FEFO` prioritizes the earliest expiry date.
-- Without batch tracking, issues consume the selected aggregate stock bucket. Batch selection strategies do not apply; do not introduce hidden receipt layers just to emulate batch selection. Cost layers may still be required when FIFO cost valuation is enabled.
-
-Each Product has a typed inventory policy. At minimum:
+Each Warehouse has a typed inventory policy:
 
 ```text
 tracking_mode: NONE | BATCH
-negative_stock_allowed: boolean = false
 issue_strategy: MANUAL | FIFO | FEFO, applicable to BATCH tracking
-batch_expiry_required: boolean, applicable to BATCH tracking
 ```
 
-Expiry dates belong to batches, not Product records. Product policy only specifies whether the batch expiry date is mandatory. FEFO requires batch tracking and populated expiry dates; expiry must be considered during issue allocation. Expired batches are excluded from automatic allocation and cannot be sold or issued through ordinary Goods Issue documents. They remain visible in stock until an authorized spoilage/disposal write-off posts explicit movements with a mandatory reason. Such a write-off may consume expired stock but must still enforce available quantity. Specify expiry-date boundary semantics and the enterprise timezone before implementation.
+- `tracking_mode = NONE`: keep balances by Product, Location, and enabled storage analytics without identifying receipt batches.
+- `tracking_mode = BATCH`: additionally retain batch identity from receipt through issue and transfer. This is a storage/accounting mode, not an issue algorithm.
+- The warehouse's `issue_strategy` chooses which available batches to consume: `MANUAL` selects batches explicitly, `FIFO` prioritizes receipt order, and `FEFO` prioritizes the earliest expiry date.
+- Without batch tracking, issues consume the selected aggregate stock bucket. Batch selection strategies do not apply; do not introduce hidden receipt layers just to emulate batch selection. Cost layers may still be required when FIFO cost valuation is enabled.
+- The same Product may be stored on warehouses with different tracking modes, subject to the expiry requirement below and the V1 transfer restrictions in section 6.
+
+Product policy retains `batch_expiry_required: boolean`. Negative-stock allowance is resolved separately according to section 11.4; it is not a warehouse tracking-mode override.
+
+Expiry dates belong to batches, not Product records. Product policy only specifies whether the batch expiry date is mandatory. A Product with `batch_expiry_required = true` may receive or hold stock only in a BATCH warehouse. Reject receipts, positive adjustments, and incoming transfers to a NONE warehouse for such Products. FEFO requires warehouse batch tracking and populated expiry dates for all batches eligible for FEFO allocation; never silently fall back to FIFO for missing expiry data. Expiry must be considered during issue allocation. Expired batches are excluded from automatic allocation and cannot be sold or issued through ordinary Goods Issue documents. They remain visible in stock until an authorized spoilage/disposal write-off posts explicit movements with a mandatory reason. Such a write-off may consume expired stock but must still enforce available quantity. Specify expiry-date boundary semantics and the enterprise timezone before implementation.
 
 Custom storage analytics are configured separately, not as hard-coded MRP or quality flags. Serial-number tracking may be added later but is out of scope for V1.
 
@@ -254,7 +255,7 @@ TRANSFER_OUT -quantity from source location
 TRANSFER_IN  +quantity to destination location
 ```
 
-Both movements must be created in one transaction, share the same document/line reference and transfer group, and preserve Product, batch, and all enabled storage analytics. A transfer does not create a new batch.
+Both movements must be created in one transaction, share the same document/line reference and transfer group, and preserve Product, batch, and all enabled storage analytics. A transfer does not create a new batch. In V1, source and destination warehouses must have the same `tracking_mode`; reject transfers between NONE and BATCH warehouses in either direction. See section 6.
 
 #### Stock Adjustment (`STOCK_ADJUSTMENT`)
 
@@ -344,7 +345,7 @@ Expose one simple price-entry document with optional bulk import of lines. Autom
 
 ## 6. Receipt documents as batches
 
-A stock receipt document is the origin of an accounting batch; do not require a separate manually maintained Batch directory. When effective Product policy has `tracking_mode = BATCH`, each posted receipt line forms an identifiable batch for that Product.
+A stock receipt document is the origin of an accounting batch; do not require a separate manually maintained Batch directory. When the receiving Warehouse has `tracking_mode = BATCH`, each posted receipt line forms an identifiable batch for that Product.
 
 Use the receipt document and its line as the batch reference:
 
@@ -373,7 +374,8 @@ storage analytic values
 - Receipt movements reference their own batch-forming source line. Issues, transfer pairs, adjustments using an existing batch, and reversals retain this origin. `source_document_line_id` identifies the current operation; `batch_source_line_id` identifies the original receipt. They are different links.
 - MANUAL lets users select available receipt batches; FIFO prioritizes receipt posting order, and FEFO prioritizes expiry with deterministic receipt/line tie-breaks.
 - Posting validates that the referenced origin is a posted batch-forming line for the same Product. Use an enforceable shared source-line registry if document lines live in separate tables.
-- For `tracking_mode = NONE`, `batch_source_line_id` is NULL; document audit links still remain mandatory.
+- For a Warehouse with `tracking_mode = NONE`, `batch_source_line_id` is NULL; document audit links still remain mandatory.
+- V1 transfers are allowed only between warehouses with matching tracking modes: BATCH to BATCH retains the original receipt-line origin and expiry data; NONE to NONE retains aggregate stock and document audit links. Reject BATCH to NONE and NONE to BATCH transfers before any movements are written. Do not discard a batch origin or invent a new batch from a transfer. Cross-mode conversion is deferred to a separately specified migration workflow.
 - Batch assignment and movements are atomic with posting. Retries do not duplicate origins or movements.
 - A batch balance/history list is a derived view by receipt origin, not a CRUD directory. Posted origin data is immutable; corrections follow explicit document flows.
 
@@ -385,7 +387,7 @@ The posting transaction must:
 
 1. Load and lock the document or verify its optimistic version.
 2. Verify that it is `DRAFT` and that the idempotency key has not already succeeded.
-3. Resolve effective typed inventory policy for every Product.
+3. Resolve effective typed inventory policy for each Product and Warehouse involved; transfers resolve both source and destination policies.
 4. Validate header, lines, positive quantities, units, warehouses, locations, permissions, stock dimensions, batch data, and the open accounting period.
 5. For outgoing lines, resolve exact stock buckets/batch allocations and lock/revalidate current total rows needed to prevent overselling (section 10).
 6. Enforce the resolved negative-stock policy for every outgoing allocation under concurrency.
@@ -652,7 +654,7 @@ For inventory settings that explicitly permit scoped overrides, use:
 Product -> Category -> Warehouse -> Company -> Global -> default
 ```
 
-Each setting definition declares its allowed scopes. Enterprise-only settings (currency, cost valuation, VAT, date lock) do not inherit Product or Category overrides; warehouse settings apply to their warehouse, and user preferences never override accounting or access rules.
+Each setting definition declares its allowed scopes. Enterprise-only settings (currency, cost valuation, VAT, date lock) do not inherit Product or Category overrides; warehouse settings apply to their warehouse, and user preferences never override accounting or access rules. `tracking_mode` and `issue_strategy` are explicit Warehouse settings, not members of the generic override chain; Product/Category/Company/Global values cannot override them. Product `batch_expiry_required` is an explicit Product requirement. Resolve these together with any permitted negative-stock overrides into a typed policy for the Product and Warehouse involved in each operation.
 
 Do not let domain code request raw string keys. Resolve settings into typed objects such as `InventoryPolicy` before executing use cases.
 
@@ -708,6 +710,12 @@ Each warehouse has `address_storage_enabled: boolean = false`.
 - Disabled: the user selects only the warehouse. Internally, movements use one default location so ledger keys remain consistent; do not expose a required cell field.
 - Enabled: users select configured locations/cells for receipt, issue, transfer, and counting.
 - Both modes preserve warehouse-level totals. Lock this mode after the first stock posting in the warehouse; V1 does not expose ordinary mode switching afterward.
+
+### 11.3.1 Warehouse batch tracking and allocation
+
+Configure `tracking_mode = NONE | BATCH` and, for BATCH only, `issue_strategy = MANUAL | FIFO | FEFO` separately for each warehouse in general warehouse settings. Product cards expose the expiry requirement, not warehouse tracking or allocation settings. These settings are editable in the admin application and read-only in the warehouse application, as described in section 11.11.
+
+Lock warehouse tracking mode after the first stock posting in that warehouse, including opening balances. Changing allocation strategy is prospective: selecting FEFO requires expiry dates on existing stock eligible for allocation and on future batch receipts. Enabling a Product's expiry requirement requires all its existing stock to be in BATCH warehouses with expiry data; reject the change until these prerequisites hold. Disabling the requirement does not remove stored expiry dates or bypass restrictions on expired stock.
 
 ### 11.4 Negative-stock setting
 
@@ -771,7 +779,7 @@ Lock structural accounting settings when the first relevant stock document is po
 | Cost valuation method | First stock posting in the enterprise; relevant when cost accounting is enabled |
 | Accounting currency | First posted monetary document |
 | Address-storage mode | First stock posting in that warehouse |
-| Batch tracking mode | First stock posting for the affected Product; parent/default changes must not indirectly change that Product's effective mode |
+| Warehouse batch tracking mode | First stock posting in that warehouse; no other setting scope may indirectly change the mode |
 | Product base unit | First stock posting for that Product |
 | Balance-defining storage analytics: enabled set, value types, requiredness, key semantics | First stock posting in the enterprise |
 
@@ -782,6 +790,8 @@ Keep locked values visible, disable editing, and show why (including a reference
 Settings that remain editable under permissions include enterprise contact/print details, user default warehouse, display decimal places, future document numbering rules, date lock, and future VAT defaults. Preserve historical document snapshots. Batch allocation strategy and expiry requirements may change prospectively, provided referenced stock is eligible and FEFO-required expiry data exists. Negative-stock allowance remains editable only without cost accounting and subject to clearing deficits before disabling. None of these changes reinterpret historical postings.
 
 ### 11.11 Settings placement in admin and warehouse applications
+
+The authenticated own-profile endpoint `GET /api/identity/me` returns nullable `first_name`, `last_name`, `display_name`, and `email` from the local ERP user record alongside identity, status, and permissions. Reading these own-profile fields does not require `users.manage`.
 
 Use a single shared backend source for general settings and user profiles. Do not maintain application-specific copies of the same enterprise configuration or user preference.
 
@@ -912,7 +922,9 @@ At minimum, cover:
 - Cancelling a draft produces no movement.
 - Reversal creates compensating movements and preserves originals.
 - Every movement has valid `source_document` and `source_line` links.
-- Batch tracking `NONE` forbids batches; `BATCH` requires/resolves them.
+- Warehouse batch tracking `NONE` forbids batches; `BATCH` requires/resolves them. Product/Category overrides cannot change warehouse tracking or allocation strategy.
+- Products requiring expiry cannot receive or hold stock in NONE warehouses; enabling that requirement validates existing stock and expiry data.
+- Transfers between NONE and BATCH warehouses are rejected atomically in either direction; transfers between BATCH warehouses preserve origin and expiry data.
 - Every batch-forming receipt assigns the correct receipt-line origin atomically; supplier lot reuse never merges accounting origins implicitly.
 - Issues, transfers, and reversals preserve original receipt-line batch references; mixed expiry/supplier-lot data uses separate receipt lines.
 - Batch expiry requirements and FEFO ordering are enforced from typed policy.
@@ -973,7 +985,7 @@ Warehouse ERP V1 is acceptable only when:
 - users can maintain Product catalog data and the approved master-data directories with the shared behavior in sections 3.1–3.2;
 - warehouses and locations exist;
 - initial receipt, goods receipt, goods issue, transfer, adjustment, and inventory count flows work through documents;
-- batch-forming inbound posting works for batch-tracked products;
+- batch-forming inbound posting works for Products received into BATCH warehouses;
 - inbound and outbound orders can generate linked real documents without directly changing stock;
 - all stock changes are traceable from movement to source document and source line;
 - lifecycle, posting, reversal, closed-period, batch, and concurrency invariants are enforced in domain/application code and the database where possible;

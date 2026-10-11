@@ -5,12 +5,13 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from warehouse_erp.catalog.infrastructure import models  # noqa: F401
 from warehouse_erp.config import load_settings
+from warehouse_erp.configuration.infrastructure import models as configuration_models  # noqa: F401
 from warehouse_erp.database import Base, get_db_session
 from warehouse_erp.identity.api.dependencies import get_current_identity, get_current_user
 from warehouse_erp.identity.domain.entities import (
@@ -22,11 +23,28 @@ from warehouse_erp.identity.domain.entities import (
 )
 from warehouse_erp.identity.infrastructure import models as identity_models  # noqa: F401
 from warehouse_erp.identity.infrastructure.seeds import role_id, seed_identity_defaults
+from warehouse_erp.inventory.infrastructure import models as inventory_models  # noqa: F401
 from warehouse_erp.main import create_app
 from warehouse_erp.permission_catalog import PERMISSIONS, SYSTEM_ROLES
 from warehouse_erp.settings.infrastructure import models as settings_models  # noqa: F401
 from warehouse_erp.settings.infrastructure.seeds import seed_settings_defaults
 from warehouse_erp.warehouse.infrastructure import models as warehouse_models  # noqa: F401
+
+
+def _test_engine(url):
+    return create_engine(
+        url,
+        connect_args={"connect_timeout": 10, "read_timeout": 45, "write_timeout": 45},
+        pool_pre_ping=True,
+    )
+
+
+def _drop_test_schema(engine):
+    # Reflect actual schema: setup/migration failures may leave only part of the DDL applied.
+    metadata = MetaData()
+    metadata.reflect(engine)
+    metadata.drop_all(engine)
+
 
 ADMIN_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -51,7 +69,7 @@ def _test_database_url(environment_variable: str) -> URL:
 
 
 def _require_empty_database(url: URL) -> None:
-    engine = create_engine(url)
+    engine = _test_engine(url)
     try:
         tables = inspect(engine).get_table_names()
         if tables:
@@ -69,9 +87,9 @@ def migration_database_url() -> Iterator[str]:
     try:
         yield url.render_as_string(hide_password=False)
     finally:
-        engine = create_engine(url)
+        engine = _test_engine(url)
         try:
-            Base.metadata.drop_all(engine)
+            _drop_test_schema(engine)
             with engine.begin() as connection:
                 connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:
@@ -82,7 +100,7 @@ def migration_database_url() -> Iterator[str]:
 def session_factory() -> Iterator[sessionmaker[Session]]:
     url = _test_database_url("TEST_DATABASE_URL")
     _require_empty_database(url)
-    engine = create_engine(url)
+    engine = _test_engine(url)
     factory = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     try:
         Base.metadata.create_all(engine)
@@ -93,6 +111,11 @@ def session_factory() -> Iterator[sessionmaker[Session]]:
                 roles=SYSTEM_ROLES,
             )
             seed_settings_defaults(session)
+            from warehouse_erp.configuration.infrastructure.repositories import (
+                seed_configuration_defaults,
+            )
+
+            seed_configuration_defaults(session)
             now = datetime.now(UTC)
             session.add(
                 identity_models.UserModel(
@@ -108,7 +131,7 @@ def session_factory() -> Iterator[sessionmaker[Session]]:
             session.commit()
         yield factory
     finally:
-        Base.metadata.drop_all(engine)
+        _drop_test_schema(engine)
         engine.dispose()
 
 

@@ -11,6 +11,7 @@ from warehouse_erp.identity.api.dependencies import (
 from warehouse_erp.identity.api.schemas import (
     Auth0Link,
     CurrentUserResponse,
+    OwnProfileUpdate,
     PermissionResponse,
     RoleAssignmentCreate,
     RoleAssignmentResponse,
@@ -53,10 +54,20 @@ UserStatusFilter = Annotated[UserStatus | None, Query(alias="status")]
 def get_me(user: Current) -> CurrentUserResponse:
     return CurrentUserResponse(
         user_id=user.user_id,
+        default_warehouse_id=user.default_warehouse_id,
         subject=user.subject,
         status=user.status,
         permissions=sorted(user.permission_codes),
+        first_name=user.first_name,
+        last_name=user.last_name,
+        display_name=user.display_name,
+        email=user.email,
     )
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(payload: OwnProfileUpdate, actor: Current, service: Service) -> object:
+    return service.update_own_profile(actor, payload.model_dump(exclude_unset=True))
 
 
 @router.get("/users", response_model=UserListResponse)

@@ -89,6 +89,7 @@ class AuthenticatedIdentity:
 class User:
     status: UserStatus
     id: UUID = field(default_factory=uuid4)
+    default_warehouse_id: UUID | None = None
     auth0_subject: str | None = None
     email: str | None = None
     first_name: str | None = None
@@ -233,7 +234,12 @@ class CurrentUser:
     user_id: UUID
     subject: str
     status: UserStatus
+    default_warehouse_id: UUID | None = None
     grants: tuple[PermissionGrant, ...] = ()
+    first_name: str | None = None
+    last_name: str | None = None
+    display_name: str | None = None
+    email: str | None = None
 
     @property
     def permission_codes(self) -> frozenset[str]:

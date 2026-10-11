@@ -19,6 +19,12 @@ class UserModel(Base):
     __tablename__ = "identity_users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    default_warehouse_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "warehouses.id", ondelete="RESTRICT", use_alter=True, name="fk_user_default_warehouse"
+        ),
+    )
     auth0_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
     email: Mapped[str | None] = mapped_column(String(320), unique=True)
     first_name: Mapped[str | None] = mapped_column(String(100))

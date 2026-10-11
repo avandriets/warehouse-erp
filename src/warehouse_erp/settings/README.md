@@ -23,18 +23,25 @@ category must match it. Product, category, and warehouse targets must exist. `CO
 for the future company module; its UUID is currently accepted without a foreign-key check.
 Category inheritance is currently exact-category only (not ancestor-category traversal).
 
-Writes require `settings.manage`, reads require `settings.read`. New overrides omit
+Writes require `settings.manage`, reads require `settings.read`. Warehouse-scoped overrides
+also require `warehouse.manage` for that warehouse; Product/Category overrides require
+`catalog.edit`. New overrides omit
 `expected_version`; updates must pass the version returned by the previous read. A stale version
 returns `409`. Every override stores `updated_by` and `updated_at`.
 
-The first built-in definitions are `inventory.default_issue_strategy` (enum
-`MANUAL`/`FIFO`/`FEFO`) and `inventory.negative_stock_allowed` (boolean). Internal consumers use
-`SettingsService.resolve_inventory_defaults(context)`, which returns one typed immutable
-`InventoryDefaults` snapshot. This snapshot is cached in-process for 15 seconds and invalidated
-after changes made by the same process. Other workers can retain a value until TTL expiry.
-Future document posting must resolve the snapshot once per transaction and retain that snapshot
-for the entire posting operation. Product-specific `ProductInventoryPolicy` still has its own
-explicit fields; these settings are not yet applied to product creation or stock posting.
+The built-in definition is `inventory.negative_stock_allowed` (boolean), with the scope
+precedence above. The old `inventory.default_issue_strategy` is retired; generic definitions
+cannot recreate it or the explicit tracking/allocation/expiry policy keys.
+
+`SettingsService.resolve_inventory_defaults(context)` returns a typed immutable snapshot:
+warehouse `tracking_mode`, effective `issue_strategy` (null without a BATCH warehouse),
+Product `batch_expiry_required` (null without a Product), negative-stock allowance, and
+resolution time. A supplied Product requiring expiry is rejected with a NONE warehouse.
+Explicit Warehouse/Product fields are read before any cached snapshot is reused, so changes
+are visible immediately. Scoped negative-stock values are cached for up to 15 seconds, with
+invalidation after changes made by this process. Other workers may retain these values until
+TTL expiry. Future posting must obtain a transactionally consistent policy snapshot and enforce
+all posting/stock locks; this read endpoint does not implement posting or check batch expiry data.
 
 ## API
 
@@ -46,15 +53,18 @@ The router is mounted at `/api/settings`:
 - `GET /resolve/{key}?product_id=...&warehouse_id=...`;
 - `GET /inventory-defaults?product_id=...&warehouse_id=...`.
 
-Example override:
+Example override for `inventory.negative_stock_allowed`:
 
 ```json
 {
   "scope_type": "WAREHOUSE",
   "scope_id": "<warehouse UUID>",
-  "value": "FIFO"
+  "value": true
 }
 ```
 
 If that override already exists, add `"expected_version": 1` (or the current version). The
 response includes the new version and audit identity.
+
+Enterprise/accounting sections, numbering and the new reference directories have explicit APIs;
+see [configuration](../configuration/README.md). They share the same database across clients.

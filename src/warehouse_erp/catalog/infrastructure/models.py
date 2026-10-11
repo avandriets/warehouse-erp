@@ -53,12 +53,16 @@ class UnitModel(Base):
         String(36), ForeignKey("catalog_units.id", ondelete="RESTRICT")
     )
     factor_to_base: Mapped[Decimal | None] = mapped_column(Numeric(24, 9))
+    display_decimal_places: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     precision: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
+        CheckConstraint(
+            "display_decimal_places BETWEEN 0 AND 9", name="ck_unit_display_decimal_places"
+        ),
         CheckConstraint(
             "`precision` >= 0 AND `precision` <= 6",
             name="ck_catalog_unit_precision",
@@ -156,31 +160,19 @@ class ProductModel(Base):
     description: Mapped[str | None] = mapped_column(Text)
     brand: Mapped[str | None] = mapped_column(String(255))
     attributes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    tracking_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="NONE")
-    issue_strategy: Mapped[str] = mapped_column(String(16), nullable=False, default="MANUAL")
-    negative_stock_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    expiry_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    mrp_tracking_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    quality_tracking_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    default_vat_rate_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey(
+            "configuration_vat_rates.id", ondelete="RESTRICT", name="fk_product_default_vat"
+        ),
+    )
+    batch_expiry_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("code", name="uq_catalog_products_code"),
-        CheckConstraint("tracking_mode IN ('NONE', 'BATCH')", name="ck_product_tracking_mode"),
-        CheckConstraint(
-            "issue_strategy IN ('MANUAL', 'FIFO', 'FEFO')",
-            name="ck_product_issue_strategy",
-        ),
-        CheckConstraint(
-            "expiry_required = false OR tracking_mode = 'BATCH'",
-            name="ck_product_expiry_requires_batch",
-        ),
-        CheckConstraint(
-            "issue_strategy != 'FEFO' OR tracking_mode = 'BATCH'",
-            name="ck_product_fefo_requires_batch",
-        ),
         Index("ix_catalog_products_category_active", "category_id", "active"),
         Index("ix_catalog_products_name", "name"),
     )

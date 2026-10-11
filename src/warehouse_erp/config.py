@@ -14,6 +14,13 @@ def _as_csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _positive_seconds(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive number of seconds")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     app_name: str
@@ -25,6 +32,11 @@ class Settings:
     cors_origins: tuple[str, ...]
     auth0_domain: str | None
     auth0_audience: str | None
+    db_pool_recycle_seconds: int = 300
+    db_pool_timeout_seconds: int = 10
+    db_connect_timeout_seconds: int = 10
+    db_read_timeout_seconds: int = 45
+    db_write_timeout_seconds: int = 45
 
 
 def load_settings() -> Settings:
@@ -41,4 +53,9 @@ def load_settings() -> Settings:
         cors_origins=_as_csv(os.getenv("APP_CORS_ORIGINS", "http://localhost:4300")),
         auth0_domain=os.getenv("AUTH0_DOMAIN") or None,
         auth0_audience=os.getenv("AUTH0_AUDIENCE") or None,
+        db_pool_recycle_seconds=_positive_seconds("APP_DB_POOL_RECYCLE_SECONDS", 300),
+        db_pool_timeout_seconds=_positive_seconds("APP_DB_POOL_TIMEOUT_SECONDS", 10),
+        db_connect_timeout_seconds=_positive_seconds("APP_DB_CONNECT_TIMEOUT_SECONDS", 10),
+        db_read_timeout_seconds=_positive_seconds("APP_DB_READ_TIMEOUT_SECONDS", 45),
+        db_write_timeout_seconds=_positive_seconds("APP_DB_WRITE_TIMEOUT_SECONDS", 45),
     )

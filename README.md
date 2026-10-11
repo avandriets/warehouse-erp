@@ -64,6 +64,15 @@ OpenAPI is available at <http://127.0.0.1:8100/docs> and health status at
 `APP_DATABASE_URL` is required and must use the `mariadb+pymysql://` SQLAlchemy URL.
 Configure it in `.env` before running migrations or the API.
 
+Database connections are checked before reuse (`pool_pre_ping`) and recycled after 300 seconds.
+`APP_DB_POOL_RECYCLE_SECONDS`, `APP_DB_POOL_TIMEOUT_SECONDS`,
+`APP_DB_CONNECT_TIMEOUT_SECONDS`, `APP_DB_READ_TIMEOUT_SECONDS`, and
+`APP_DB_WRITE_TIMEOUT_SECONDS` configure positive timeouts in seconds; defaults are
+300/10/10/45/45 respectively. Set recycle below the server/network idle limit when known.
+Unavailable connections and exhausted pools return HTTP 503 with a generic message.
+Connection checks cannot prevent a disconnect during an active transaction; the API does not
+automatically replay writes after an uncertain commit. `/health` reports process liveness only.
+
 ## Authentication
 
 Auth0 authenticates API callers. Configure `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` in `.env`;
@@ -113,3 +122,6 @@ After migration, optional starter units can be inserted idempotently with
 
 List endpoints accept `limit`, `offset`, and `active`. Product lists also support category filters;
 category lists support parent and root filters.
+
+Persisted enterprise/accounting settings, document numbering rules and reference directories
+are described in [the configuration API contract](src/warehouse_erp/configuration/README.md).

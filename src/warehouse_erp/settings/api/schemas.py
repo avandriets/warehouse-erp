@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from warehouse_erp.inventory.domain.policies import IssueStrategy, TrackingMode
 from warehouse_erp.settings.domain.entities import SettingScope, ValueType
 
 
@@ -62,6 +63,8 @@ class ResolvedResponse(BaseModel):
 
 
 class InventoryDefaultsResponse(BaseModel):
-    issue_strategy: str
+    tracking_mode: TrackingMode | None
+    issue_strategy: IssueStrategy | None
+    batch_expiry_required: bool | None
     negative_stock_allowed: bool
     resolved_at: datetime

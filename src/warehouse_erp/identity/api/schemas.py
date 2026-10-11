@@ -10,7 +10,12 @@ class CurrentUserResponse(BaseModel):
     user_id: UUID
     subject: str
     status: UserStatus
+    default_warehouse_id: UUID | None = None
     permissions: list[str]
+    first_name: str | None = None
+    last_name: str | None = None
+    display_name: str | None = None
+    email: str | None = None
 
 
 class UserCreate(BaseModel):
@@ -31,10 +36,20 @@ class Auth0Link(BaseModel):
     auth0_subject: str
 
 
+class OwnProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    display_name: str | None = None
+    default_warehouse_id: UUID | None = None
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    default_warehouse_id: UUID | None = None
     auth0_subject: str | None
     email: str | None
     first_name: str | None

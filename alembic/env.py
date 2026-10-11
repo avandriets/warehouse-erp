@@ -5,8 +5,10 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from warehouse_erp.catalog.infrastructure import models  # noqa: F401
 from warehouse_erp.config import load_settings
+from warehouse_erp.configuration.infrastructure import models as configuration_models  # noqa: F401
 from warehouse_erp.database import Base
 from warehouse_erp.identity.infrastructure import models as identity_models  # noqa: F401
+from warehouse_erp.inventory.infrastructure import models as inventory_models  # noqa: F401
 from warehouse_erp.settings.infrastructure import models as settings_models  # noqa: F401
 from warehouse_erp.warehouse.infrastructure import models as warehouse_models  # noqa: F401
 

@@ -171,25 +171,82 @@ def test_settings_type_validation_scope_precedence_and_versions(client: TestClie
     assert missing_target.status_code == 404
 
 
-def test_typed_inventory_snapshot_is_invalidated_after_setting_change(client: TestClient) -> None:
-    initial = client.get("/api/settings/inventory-defaults")
+def test_typed_inventory_snapshot_uses_warehouse_and_invalidates_changes(
+    client: TestClient,
+) -> None:
+    warehouse_id, _, product_id = _scopes(client)
+    path = f"/api/settings/inventory-defaults?warehouse_id={warehouse_id}&product_id={product_id}"
+    initial = client.get(path)
     assert initial.status_code == 200, initial.text
-    assert initial.json()["issue_strategy"] == "MANUAL"
+    assert initial.json()["tracking_mode"] == "NONE"
+    assert initial.json()["issue_strategy"] is None
     assert initial.json()["negative_stock_allowed"] is False
+    changed = client.patch(
+        f"/api/warehouses/{warehouse_id}",
+        json={
+            "tracking_mode": "BATCH",
+            "issue_strategy": "FIFO",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert client.get(path).json()["issue_strategy"] == "FIFO"
     updated = client.put(
-        "/api/settings/definitions/inventory.default_issue_strategy/values",
-        json={"scope_type": "GLOBAL", "value": "FIFO"},
+        "/api/settings/definitions/inventory.negative_stock_allowed/values",
+        json={"scope_type": "GLOBAL", "value": True},
     )
     assert updated.status_code == 200, updated.text
-    resolved = client.get("/api/settings/inventory-defaults")
-    assert resolved.status_code == 200
-    assert resolved.json()["issue_strategy"] == "FIFO"
-    assert resolved.json()["resolved_at"] != initial.json()["resolved_at"]
-    invalid = client.put(
-        "/api/settings/definitions/inventory.default_issue_strategy/values",
-        json={"scope_type": "GLOBAL", "value": "LIFO", "expected_version": 1},
+    assert client.get(path).json()["negative_stock_allowed"] is True
+    assert client.get("/api/settings/inventory-defaults").json()["issue_strategy"] is None
+    assert (
+        client.get("/api/settings/definitions/inventory.default_issue_strategy").status_code == 404
     )
-    assert invalid.status_code == 422
+
+
+def test_product_expiry_and_warehouse_compatibility_is_checked(client: TestClient) -> None:
+    warehouse_id, _, product_id = _scopes(client)
+    path = f"/api/settings/inventory-defaults?warehouse_id={warehouse_id}&product_id={product_id}"
+    assert client.get(path).status_code == 200  # populate cache
+    result = client.patch(
+        f"/api/catalog/products/{product_id}",
+        json={
+            "policy": {"batch_expiry_required": True},
+        },
+    )
+    assert result.status_code == 200, result.text
+    incompatible = client.get(path)
+    assert incompatible.status_code == 422
+    assert "BATCH" in incompatible.json()["detail"]
+    assert (
+        client.patch(
+            f"/api/warehouses/{warehouse_id}",
+            json={
+                "tracking_mode": "BATCH",
+                "issue_strategy": "FEFO",
+            },
+        ).status_code
+        == 200
+    )
+    resolved = client.get(path)
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["batch_expiry_required"] is True
+    assert resolved.json()["issue_strategy"] == "FEFO"
+
+
+def test_generic_setting_cannot_reintroduce_inventory_issue_defaults(client: TestClient) -> None:
+    category = client.get("/api/settings/categories").json()[0]
+    result = client.post(
+        "/api/settings/definitions",
+        json={
+            "category_id": category["id"],
+            "key": "inventory.default_issue_strategy",
+            "name": "Strategy",
+            "value_type": "ENUM",
+            "default_value": "MANUAL",
+            "allowed_scopes": ["PRODUCT"],
+            "options": ["MANUAL", "FIFO", "FEFO"],
+        },
+    )
+    assert result.status_code == 422
 
 
 def test_decimal_setting_is_canonical_and_scope_is_checked(client: TestClient) -> None:

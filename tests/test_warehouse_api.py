@@ -144,3 +144,67 @@ def test_warehouse_scoped_permissions_filter_reads_and_writes(client: TestClient
         ).status_code
         == 403
     )
+
+
+def test_warehouse_inventory_policy_create_patch_and_validation(client: TestClient) -> None:
+    result = client.post(
+        "/api/warehouses",
+        json={
+            "code": "batches",
+            "name": "Batches",
+            "tracking_mode": "BATCH",
+            "issue_strategy": "FEFO",
+        },
+    )
+    assert result.status_code == 201, result.text
+    warehouse_id = result.json()["id"]
+    assert client.get(f"/api/warehouses/{warehouse_id}").json()["issue_strategy"] == "FEFO"
+    invalid = client.patch(f"/api/warehouses/{warehouse_id}", json={"tracking_mode": "NONE"})
+    assert invalid.status_code == 422
+    assert client.get(f"/api/warehouses/{warehouse_id}").json()["tracking_mode"] == "BATCH"
+    for payload in ({"issue_strategy": None}, {"tracking_mode": None}, {"issue_strategy": "LIFO"}):
+        assert client.patch(f"/api/warehouses/{warehouse_id}", json=payload).status_code == 422
+    changed = client.patch(
+        f"/api/warehouses/{warehouse_id}",
+        json={
+            "tracking_mode": "NONE",
+            "issue_strategy": "MANUAL",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["tracking_mode"] == "NONE"
+
+
+def test_inventory_policy_edit_requires_settings_permission(client: TestClient) -> None:
+    item = _warehouse(client, "permissions")
+    client.app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+        subject="auth0|test-user",
+        status=UserStatus.ACTIVE,
+        grants=(
+            PermissionGrant(
+                permission_code=WarehousePermission.MANAGE,
+                role_id=UUID(item["id"]),
+                scope_type=ScopeType.GLOBAL,
+                scope_id=None,
+            ),
+        ),
+    )
+    assert (
+        client.patch(f"/api/warehouses/{item['id']}", json={"name": "Renamed"}).status_code == 200
+    )
+    assert (
+        client.patch(f"/api/warehouses/{item['id']}", json={"tracking_mode": "BATCH"}).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/warehouses",
+            json={
+                "code": "denied",
+                "name": "Denied",
+                "tracking_mode": "BATCH",
+            },
+        ).status_code
+        == 403
+    )
