@@ -35,7 +35,11 @@ def test_directory_round_trip_version_search_and_audit(client, directory, payloa
     item = create(client, directory, **payload)
     assert client.get(path + "/" + item["id"]).json() == item
     assert client.post(path, json=payload).status_code == 409
-    assert len(client.get(path, params={"q": payload["name"], "limit": 1}).json()) == 1
+    result = client.get(path, params={"q": payload["name"], "limit": 1}).json()
+    if directory in {"adjustment-reasons", "price-types", "currencies"}:
+        assert result == {"items": [item], "total": 1}
+    else:
+        assert len(result) == 1
     renamed = client.patch(path + "/" + item["id"], json={"name": "Updated", "expected_version": 1})
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["version"] == 2
@@ -59,7 +63,12 @@ def test_directory_round_trip_version_search_and_audit(client, directory, payloa
     )
     archived = client.patch(path + "/" + item["id"], json={"active": False, "expected_version": 2})
     assert archived.status_code == 200
-    assert client.get(path, params={"active": True}).json() == []
+    expected = (
+        {"items": [], "total": 0}
+        if directory in {"adjustment-reasons", "price-types", "currencies"}
+        else []
+    )
+    assert client.get(path, params={"active": True}).json() == expected
     history = client.get(path + "/" + item["id"] + "/history").json()
     assert len(history) == 3
     assert any(
@@ -346,3 +355,27 @@ def test_scoped_overrides_require_resource_permission(client):
         ).status_code
         == 403
     )
+
+
+@pytest.mark.parametrize("directory", ["adjustment-reasons", "price-types"])
+def test_directory_total_matches_filters_before_pagination(client, directory):
+    path = "/api/reference-data/" + directory
+    first = create(client, directory, code="DAMAGE_A", name="Damage A")
+    second = create(client, directory, code="DAMAGE_B", name="Damage B")
+    archived = create(client, directory, code="DAMAGE_C", name="Damage C", active=False)
+    create(client, directory, code="OTHER", name="Other")
+    params = {"q": "Damage", "active": True, "limit": 1, "offset": 1}
+    response = client.get(path, params=params)
+    assert response.status_code == 200
+    assert response.json() == {"items": [second], "total": 2}
+    params["offset"] = 20
+    assert client.get(path, params=params).json() == {"items": [], "total": 2}
+    assert client.get(path, params={"q": "DAMAGE_", "limit": 1}).json() == {
+        "items": [first],
+        "total": 3,
+    }
+    assert client.get(path, params={"q": "Damage", "active": False}).json() == {
+        "items": [archived],
+        "total": 1,
+    }
+    assert client.get(path, params={"q": "missing"}).json() == {"items": [], "total": 0}

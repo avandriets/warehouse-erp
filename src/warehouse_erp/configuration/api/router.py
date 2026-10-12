@@ -10,15 +10,25 @@ from warehouse_erp.configuration.api.schemas import (
     DIRECTORY_SCHEMAS,
     AccountingSettingsResponse,
     AccountingSettingsUpdate,
+    AdjustmentReasonPageResponse,
+    CurrencyBaseUpdate,
+    CurrencyPageResponse,
+    CurrencyRatesLoad,
+    CurrencyRatesOverviewResponse,
     DocumentNumberingResponse,
     DocumentNumberingUpdate,
     EnterpriseSettingsResponse,
     EnterpriseSettingsUpdate,
     ExchangeRequest,
     ExternalMappingRequest,
+    PriceTypePageResponse,
 )
+from warehouse_erp.configuration.application.currency_rates import CurrencyRatesService
 from warehouse_erp.configuration.application.service import ConfigurationService, settings_id
 from warehouse_erp.configuration.domain.entities import DocumentType
+from warehouse_erp.configuration.infrastructure.exchange_rates import (
+    FrankfurterExchangeRatesProvider,
+)
 from warehouse_erp.configuration.infrastructure.repositories import (
     SqlAlchemyConfigurationUnitOfWork,
 )
@@ -61,6 +71,12 @@ def register_directory(kind, create_schema, update_schema, response_schema):
     edit = SettingsPermission.MANAGE if kind in GENERAL_DIRECTORIES else CatalogPermission.EDIT
     path = f"/reference-data/{kind}"
 
+    page_schema = {
+        "adjustment-reasons": AdjustmentReasonPageResponse,
+        "price-types": PriceTypePageResponse,
+        "currencies": CurrencyPageResponse,
+    }.get(kind)
+
     def list_records(
         service: Service,
         q: Search = None,
@@ -68,6 +84,9 @@ def register_directory(kind, create_schema, update_schema, response_schema):
         limit: Limit = 50,
         offset: Offset = 0,
     ):
+        if page_schema is not None:
+            items, total = service.list_page(kind, q=q, active=active, limit=limit, offset=offset)
+            return {"items": items, "total": total}
         return service.list(
             kind, q=q, active=active, definition_id=None, limit=limit, offset=offset
         )
@@ -256,7 +275,7 @@ def register_directory(kind, create_schema, update_schema, response_schema):
             list_values if kind == "storage-analytic-values" else list_records,
             "",
             read,
-            list[response_schema],
+            page_schema or list[response_schema],
         ),
         ("POST", create_record, "", create, response_schema),
         ("GET", get_record, "/{item_id}", read, response_schema),
@@ -421,3 +440,39 @@ def settings_history(section: str, service: Service, limit: Limit = 50, offset: 
     if section not in {"enterprise", "accounting"}:
         raise NotFoundError("Unknown settings section")
     return service.uow.records.history(section, settings_id(section), limit, offset)
+
+
+def get_currency_rates_service(session: Annotated[Session, Depends(get_db_session)]):
+    return CurrencyRatesService(
+        SqlAlchemyConfigurationUnitOfWork(session), FrankfurterExchangeRatesProvider()
+    )
+
+
+RatesService = Annotated[CurrencyRatesService, Depends(get_currency_rates_service)]
+
+
+@router.get(
+    "/reference-data/currency-rates",
+    response_model=CurrencyRatesOverviewResponse,
+    dependencies=[Depends(require_permission(SettingsPermission.READ))],
+)
+def currency_rates(service: RatesService):
+    return service.overview()
+
+
+@router.patch(
+    "/reference-data/currency-rates/base-currency",
+    response_model=CurrencyRatesOverviewResponse,
+    dependencies=[Depends(require_permission(SettingsPermission.MANAGE))],
+)
+def set_currency_base(payload: CurrencyBaseUpdate, service: RatesService, actor: Actor):
+    return service.set_base(payload.currency_id, payload.expected_version, actor.user_id)
+
+
+@router.post(
+    "/reference-data/currency-rates/load",
+    response_model=CurrencyRatesOverviewResponse,
+    dependencies=[Depends(require_permission(SettingsPermission.MANAGE))],
+)
+def load_currency_rates(payload: CurrencyRatesLoad, service: RatesService, actor: Actor):
+    return service.load(payload.base_currency_id, payload.expected_version, actor.user_id)

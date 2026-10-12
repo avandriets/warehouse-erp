@@ -32,6 +32,14 @@ class ConfigurationService:
     def list(self, kind: str, **filters) -> list[Record]:
         return self.uow.records.list(kind, **filters)
 
+    def list_page(
+        self, kind: str, *, q: str | None, active: bool | None, limit: int, offset: int
+    ) -> tuple[list[Record], int]:
+        filters = dict(q=q, active=active, definition_id=None)
+        items = self.uow.records.list(kind, **filters, limit=limit, offset=offset)
+        total = self.uow.records.count(kind, **filters)
+        return items, total
+
     def create(self, kind: str, values: dict, actor_id: UUID) -> Record:
         self.uow.records.lock()
         item = self.prepare_create(kind, values, actor_id)

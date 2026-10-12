@@ -229,3 +229,33 @@ MODELS = {
     "accounting": AccountingSettingsModel,
     "numbering": DocumentNumberingModel,
 }
+
+
+class CurrencyRateBatchModel(Base):
+    __tablename__ = "configuration_currency_rate_batches"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    base_currency_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("configuration_currencies.id", ondelete="RESTRICT"), nullable=False
+    )
+    base_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fetched_by: Mapped[str] = mapped_column(
+        String(36), ForeignKey("identity_users.id", ondelete="RESTRICT"), nullable=False
+    )
+    missing_codes: Mapped[list] = mapped_column(JSON, nullable=False)
+    __table_args__ = (
+        Index("ix_currency_rate_batches_base_date", "base_currency_id", "fetched_at", "id"),
+    )
+
+
+class CurrencyRateModel(Base):
+    __tablename__ = "configuration_currency_rates"
+    batch_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("configuration_currency_rate_batches.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    quote_code: Mapped[str] = mapped_column(String(3), primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)

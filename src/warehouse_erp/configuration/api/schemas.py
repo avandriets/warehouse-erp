@@ -73,6 +73,45 @@ class CurrencyResponse(CurrencyCreate, RecordResponse):
     pass
 
 
+class CurrencyPageResponse(Payload):
+    items: list[CurrencyResponse]
+    total: int = Field(ge=0)
+
+
+class CurrencyRateResponse(Payload):
+    base_code: str
+    quote_code: str
+    date: date
+    rate: Decimal
+
+
+class CurrencyRateBatchResponse(Payload):
+    id: UUID
+    base_currency_id: UUID
+    base_code: str
+    source: str
+    fetched_at: datetime
+    fetched_by: UUID
+    rates: list[CurrencyRateResponse]
+    missing_codes: list[str]
+
+
+class CurrencyRatesOverviewResponse(Payload):
+    base_currency: CurrencyResponse | None
+    settings_version: int
+    batch: CurrencyRateBatchResponse | None
+
+
+class CurrencyBaseUpdate(Payload):
+    currency_id: UUID
+    expected_version: int = Field(ge=1)
+
+
+class CurrencyRatesLoad(Payload):
+    base_currency_id: UUID
+    expected_version: int = Field(ge=1)
+
+
 class VatRateCreate(Payload):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
@@ -195,6 +234,11 @@ class PriceTypeResponse(PriceTypeCreate, RecordResponse):
     pass
 
 
+class PriceTypePageResponse(Payload):
+    items: list[PriceTypeResponse]
+    total: int = Field(ge=0)
+
+
 class AdjustmentReasonCreate(Payload):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
@@ -211,6 +255,11 @@ class AdjustmentReasonUpdate(UpdatePayload):
 
 class AdjustmentReasonResponse(AdjustmentReasonCreate, RecordResponse):
     pass
+
+
+class AdjustmentReasonPageResponse(Payload):
+    items: list[AdjustmentReasonResponse]
+    total: int = Field(ge=0)
 
 
 class EnterpriseSettingsCreate(Payload):

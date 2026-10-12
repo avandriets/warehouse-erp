@@ -176,3 +176,15 @@ those via the external-identifiers API after importing records.
 Run `.venv/bin/alembic upgrade head` against the configured application database when deploying.
 Tests use only the dedicated MariaDB database named by `TEST_DATABASE_URL`, never the application
 schema. No migration is automatically run on application startup.
+
+## Accounting currency and internet reference rates
+
+Currencies list now returns `{ items, total }`. The accounting currency remains `AccountingSettings.currency_id`.
+
+- `GET /api/reference-data/currency-rates`: selected base currency, accounting settings version, and latest saved batch for that base (or null).
+- `PATCH /api/reference-data/currency-rates/base-currency`: `{ currency_id, expected_version }`; uses the existing accounting settings validation and audit.
+- `POST /api/reference-data/currency-rates/load`: `{ base_currency_id, expected_version }`; manually downloads rates for active currency records from `https://api.frankfurter.dev/v2/rates`.
+
+Reads require `settings.read`; changes/imports require `settings.manage`. A rate is quote currency units per **one base currency unit**. Every download preserves its exact decimal rates, individual observation dates, provider, fetch timestamp, actor, base id/code, and missing currency codes in a new immutable snapshot. Unsupported quotes are listed; empty/malformed/provider-failure responses do not replace saved data. Network I/O occurs before acquiring the configuration guard; settings version and active currency codes are checked again under the guard before the batch is committed. Reference rates do not recalculate monetary documents or stock valuation.
+
+Apply Alembic revision `20261011_0010` before using rate endpoints. No external API key or additional scheduled job is needed.

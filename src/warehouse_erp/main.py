@@ -9,6 +9,7 @@ from sqlalchemy.exc import TimeoutError as DatabasePoolTimeout
 from warehouse_erp.catalog.api.router import router as catalog_router
 from warehouse_erp.config import load_settings
 from warehouse_erp.configuration.api.router import router as configuration_router
+from warehouse_erp.configuration.domain.exchange_rates import ExchangeRateProviderError
 from warehouse_erp.database import is_database_unavailable
 from warehouse_erp.identity.api.router import router as identity_router
 from warehouse_erp.settings.api.router import router as settings_router
@@ -72,6 +73,14 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": str(exc)},
+        )
+
+    @application.exception_handler(ExchangeRateProviderError)
+    async def exchange_rate_provider_handler(
+        _: Request, exc: ExchangeRateProviderError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(exc)}
         )
 
     @application.exception_handler(ForbiddenError)

@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,11 +17,15 @@ from warehouse_erp.configuration.domain.entities import (
     Record,
     now,
 )
+from warehouse_erp.configuration.domain.exchange_rates import CurrencyRateBatch, ExchangeRate
 from warehouse_erp.configuration.infrastructure.models import (
     MODELS,
     AccountingSettingsModel,
     ConfigurationAuditModel,
     ConfigurationGuardModel,
+    CurrencyModel,
+    CurrencyRateBatchModel,
+    CurrencyRateModel,
     ExternalMappingModel,
     StorageAnalyticValueModel,
 )
@@ -125,7 +129,25 @@ class SqlAlchemyConfigurationRepository:
         offset: int,
     ) -> list[Record]:
         model = MODELS[kind]
-        query = select(model).order_by(model.name, model.id)
+        query = self._filtered_query(kind, q=q, active=active, definition_id=definition_id)
+        query = query.order_by(model.name, model.id)
+        if self.locked:
+            query = query.with_for_update()
+        return [
+            entity(kind, row) for row in self.session.scalars(query.limit(limit).offset(offset))
+        ]
+
+    def count(
+        self, kind: str, *, q: str | None, active: bool | None, definition_id: UUID | None
+    ) -> int:
+        query = self._filtered_query(kind, q=q, active=active, definition_id=definition_id)
+        return self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    def _filtered_query(
+        self, kind: str, *, q: str | None, active: bool | None, definition_id: UUID | None
+    ):
+        model = MODELS[kind]
+        query = select(model)
         if active is not None:
             query = query.where(model.active == active)
         if definition_id is not None:
@@ -137,11 +159,77 @@ class SqlAlchemyConfigurationRepository:
             if kind == "counterparties":
                 columns += [model.tax_identifier, model.registration_identifier]
             query = query.where(or_(*(c.contains(q.strip(), autoescape=True) for c in columns)))
+        return query
+
+    def active_currencies(self):
+        query = (
+            select(CurrencyModel).where(CurrencyModel.active.is_(True)).order_by(CurrencyModel.code)
+        )
         if self.locked:
             query = query.with_for_update()
         return [
-            entity(kind, row) for row in self.session.scalars(query.limit(limit).offset(offset))
+            entity("currencies", row)
+            for row in self.session.scalars(query.execution_options(populate_existing=True))
         ]
+
+    def latest_currency_rates(self, base_currency_id: UUID) -> CurrencyRateBatch | None:
+        batch = self.session.scalar(
+            select(CurrencyRateBatchModel)
+            .where(CurrencyRateBatchModel.base_currency_id == str(base_currency_id))
+            .order_by(CurrencyRateBatchModel.fetched_at.desc(), CurrencyRateBatchModel.id.desc())
+            .limit(1)
+        )
+        if batch is None:
+            return None
+        rows = self.session.scalars(
+            select(CurrencyRateModel)
+            .where(CurrencyRateModel.batch_id == batch.id)
+            .order_by(CurrencyRateModel.quote_code)
+        )
+        return CurrencyRateBatch(
+            id=UUID(batch.id),
+            base_currency_id=base_currency_id,
+            base_code=batch.base_code,
+            source=batch.source,
+            fetched_at=batch.fetched_at.replace(tzinfo=UTC),
+            fetched_by=UUID(batch.fetched_by),
+            missing_codes=tuple(batch.missing_codes),
+            rates=tuple(
+                ExchangeRate(
+                    base_code=batch.base_code,
+                    quote_code=row.quote_code,
+                    date=row.date,
+                    rate=row.rate,
+                )
+                for row in rows
+            ),
+        )
+
+    def save_currency_rates(self, batch: CurrencyRateBatch) -> None:
+        self.session.add(
+            CurrencyRateBatchModel(
+                id=str(batch.id),
+                base_currency_id=str(batch.base_currency_id),
+                base_code=batch.base_code,
+                source=batch.source,
+                fetched_at=batch.fetched_at,
+                fetched_by=str(batch.fetched_by),
+                missing_codes=list(batch.missing_codes),
+            )
+        )
+        self.session.flush()
+        self.session.add_all(
+            [
+                CurrencyRateModel(
+                    batch_id=str(batch.id),
+                    quote_code=rate.quote_code,
+                    date=rate.date,
+                    rate=rate.rate,
+                )
+                for rate in batch.rates
+            ]
+        )
+        self.session.flush()
 
     def save(self, kind: str, item: Record, expected_version: int | None) -> None:
         if expected_version is None:
